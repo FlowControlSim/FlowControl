@@ -18,9 +18,15 @@
     <ClCompile Include="flow_control.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="test_scene.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="flow_control.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="test_scene.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

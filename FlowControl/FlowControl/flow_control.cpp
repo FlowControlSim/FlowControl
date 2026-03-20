@@ -1,4 +1,5 @@
 #include "flow_control.h"
+#include "test_scene.h"
 #include <maya/MFnPlugin.h>
 // define EXPORT for exporting dll functions
 #define EXPORT _declspec(dllexport)
@@ -24,6 +25,11 @@ EXPORT MStatus initializePlugin(MObject obj)
 	status = plugin.registerCommand("helloMaya", helloMaya::creator );
 	if (!status)
 		status.perror( "registerCommand failed" );
+
+	status = plugin.registerNode("testScene", testScene::id, testScene::creator, testScene::initialize);
+	if (!status)
+		status.perror("register customDeformer node failed");
+
 	return status;
 }
 // Cleanup Plugin upon unloading
@@ -34,5 +40,9 @@ EXPORT MStatus uninitializePlugin(MObject obj)
 	status = plugin.deregisterCommand("helloMaya");
 	if(!status)
 		status.perror( "deregisterCommand failed" );
+
+	status = plugin.deregisterNode(testScene::id);
+	if(!status)
+		status.perror("deregister testScene node failed");
 	return status;
 }

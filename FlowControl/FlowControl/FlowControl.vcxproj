@@ -142,6 +142,7 @@
     <ClCompile Include="CayleyMap.cpp" />
     <ClCompile Include="FlowIntegrator.cpp" />
     <ClCompile Include="flow_control.cpp" />
+    <ClCompile Include="meshData.cpp" />
     <ClCompile Include="SE3Transform.cpp" />
     <ClCompile Include="test_scene.cpp" />
   </ItemGroup>
@@ -150,6 +151,7 @@
     <ClInclude Include="FlowIntegrator.h" />
     <ClInclude Include="flow_control.h" />
     <ClInclude Include="helpers.h" />
+    <ClInclude Include="meshData.h" />
     <ClInclude Include="SE3Transform.h" />
     <ClInclude Include="test_scene.h" />
     <ClInclude Include="Vector6D.h" />

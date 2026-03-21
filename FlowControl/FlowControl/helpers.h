@@ -13,7 +13,13 @@ using mat3 = std::array<std::array<double, 3>, 3>;
 using Vector6D = std::array<double, 6>;
 using Matrix6x6 = std::array<std::array<double, 6>, 6>;
 
-typedef Eigen::Matrix<double, 6, 6> Matrix6d;
+using namespace Eigen;
+
+typedef Matrix<double, 6, 6> Matrix6d;
+typedef Matrix<double, 3, 3> Matrix3d;
+typedef Vector<double, 6> Vector6d;
+typedef Vector<double, 3> Vector3d;
+
 
 // utility functions
 inline mat3 skew(const vec3& v) {
@@ -24,8 +30,20 @@ inline mat3 skew(const vec3& v) {
     }};
 }
 
+inline Matrix3d skew(const Vector3d& v) {
+    Matrix3d m;
+    m << 0.0, -v(2), v(1),
+         v(2), 0.0, -v(0),
+        -v(1), v(0), 0.0;
+    return m;
+}
+
 inline vec3 unskew(const mat3& m) {
     return { m[2][1], m[0][2], m[1][0] };
+}
+
+inline Vector3d unskew(const Matrix3d& m) {
+	return Vector3d(m(2, 1), m(0, 2), m(1, 0));
 }
 
 

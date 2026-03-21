@@ -3,3 +3,6 @@
 build/*
 Debug/*
 Release/*
+/FlowControl/eigen-5.0.0
+/FlowControl/FlowControl/x64
+/FlowControl/x64

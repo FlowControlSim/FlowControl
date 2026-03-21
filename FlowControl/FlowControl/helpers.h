@@ -4,6 +4,8 @@
 #include <cmath>
 #include <stdexcept>
 #include <algorithm>
+#include <Eigen/Dense>
+
 
 // types
 using vec3 = std::array<double, 3>;
@@ -11,6 +13,7 @@ using mat3 = std::array<std::array<double, 3>, 3>;
 using Vector6D = std::array<double, 6>;
 using Matrix6x6 = std::array<std::array<double, 6>, 6>;
 
+typedef Eigen::Matrix<double, 6, 6> Matrix6d;
 
 // utility functions
 inline mat3 skew(const vec3& v) {

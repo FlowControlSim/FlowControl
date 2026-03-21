@@ -108,7 +108,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NT_PLUGIN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:\Program Files\Autodesk\Maya2026\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)/eigen-5.0.0/eigen-5.0.0;C:\Program Files\Autodesk\Maya2026\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -127,7 +127,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NT_PLUGIN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:/Program Files/Autodesk/Maya2026/include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)/eigen-5.0.0/eigen-5.0.0;C:/Program Files/Autodesk/Maya2026/include</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -139,12 +139,20 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="CayleyMap.cpp" />
+    <ClCompile Include="FlowIntegrator.cpp" />
     <ClCompile Include="flow_control.cpp" />
+    <ClCompile Include="SE3Transform.cpp" />
     <ClCompile Include="test_scene.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="CayleyMap.h" />
+    <ClInclude Include="FlowIntegrator.h" />
     <ClInclude Include="flow_control.h" />
+    <ClInclude Include="helpers.h" />
+    <ClInclude Include="SE3Transform.h" />
     <ClInclude Include="test_scene.h" />
+    <ClInclude Include="Vector6D.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

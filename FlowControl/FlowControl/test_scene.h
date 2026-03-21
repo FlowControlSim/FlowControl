@@ -7,13 +7,12 @@
 #include <maya/MPlug.h>
 #include <maya/MTypeId.h>
 
-MTypeId testScene::id(0x8000f);
 
 class testScene : public MPxNode {
 
 public: 
 	testScene() {};
-	virtual ~testScene();
+	virtual ~testScene() {};
 	static void* creator();
 	static MStatus initialize();
 	static MStatus compute(const MPlug& plug, MDataBlock& data);

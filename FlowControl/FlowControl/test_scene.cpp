@@ -1,5 +1,6 @@
 #include "test_scene.h"
 
+MTypeId testScene::id(0x8000f);
 
 void* testScene::creator()
 {

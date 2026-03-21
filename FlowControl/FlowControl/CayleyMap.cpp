@@ -1,13 +1,13 @@
 ﻿#include "CayleyMap.h"
 
-float CayleyMap::sigma(Vector3d Y) {
+float CayleyMap::sigma(vec3 Y) {
     float res = Y[0] * Y[0] + Y[1] * Y[1] + Y[2] * Y[2];
     return 2.0 / (1.0 + res);
 }
 
 SE3Transform CayleyMap::cayley_map(Vector6D Y) {
-    Vector3d x = {Y[0], Y[1], Y[2]};
-	Vector3d y = { Y[3], Y[4], Y[5] };
+    Vector3d x = {Y.data[0], Y.data[1], Y.data[2]};
+	Vector3d y = { Y.data[3], Y.data[4], Y.data[5] };
 
     Matrix3d x_skew = skew(x);
     float sig = CayleyMap::sigma(x);
@@ -23,8 +23,8 @@ SE3Transform CayleyMap::cayley_map(Vector6D Y) {
     return from_rotation_translation(R, t);
 }
 
-Vector6d CayleyMap::inverse_cayley_map(SE3Transform T) {
-    
+Vector6D CayleyMap::inverse_cayley_map(SE3Transform T) {
+
     Matrix3d R = T.R();
 	Vector3d t = T.t();
     Matrix3d I = Matrix3d::Identity();
@@ -35,17 +35,17 @@ Vector6d CayleyMap::inverse_cayley_map(SE3Transform T) {
     // y = (I + R)⁻¹ t
     Vector3d y = (I + R).inverse() * t;
 
-    Vector6d out = Vector6d::Zero();
-    out << x, y;
+    Vector6D out = Vector6D();
+    out.data << x, y;
     return out;
 }
 
-Matrix6d CayleyMap::cayley_differential(Vector6d Y) {
+Matrix6d CayleyMap::cayley_differential(Vector6D Y) {
     /*
     cayley differential - Müller Lemma 3.2, Eq. 3.16
     */
-    Vector3d x = { Y[0], Y[1], Y[2] };
-    Vector3d y = { Y[3], Y[4], Y[5] };
+    Vector3d x = Y.omega();
+    Vector3d y = Y.vel();
 
     float sig = CayleyMap::sigma(x);
     Matrix3d x_skew = skew(x);
@@ -64,9 +64,9 @@ Matrix6d CayleyMap::cayley_differential(Vector6d Y) {
 
 }
 
-Matrix6d CayleyMap::inverse_cayley_differential(Vector6d Y) {
-    Vector3d x = { Y[0], Y[1], Y[2] };
-    Vector3d y = { Y[3], Y[4], Y[5] };
+Matrix6d CayleyMap::inverse_cayley_differential(Vector6D Y) {
+    Vector3d x = Y.omega();
+    Vector3d y = Y.vel();
 
     float sig = CayleyMap::sigma(x);
     Matrix3d x_skew = skew(x);

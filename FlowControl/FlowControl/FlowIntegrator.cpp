@@ -1,4 +1,4 @@
-#include "FlowIntegrator.h"
+﻿#include "FlowIntegrator.h"
 
 // external force class
 
@@ -76,4 +76,68 @@ Vector6D FlowIntegrator::compute_total_force(const Vector6D& velocity, double ma
 }
 
 
+NewtonResult FlowIntegrator::integrate_step_newton(const SE3Transform& g_k, const Vector6D& mu_k, const Matrix6d& K,
+                                                   const Vector6D& mu_offset, const Vector6D& F, double dt) {
+    const double h = dt;
+    const Matrix6d K_inv = K.inverse();
 
+    Vector6D Y_k(K_inv * (mu_k.data - mu_offset.data));
+    Vector6D Y = Y_k;
+
+    CayleyMap cayley;
+    Matrix6d dcay_inv_neg_hYk = cayley.inverse_cayley_differential(Y_k * (-h));
+
+    double r_norm = 0.0;
+    int iter = 0;
+
+    for (iter = 0; iter < max_newton_iters; ++iter) {
+        Matrix6d dcay_inv_hY = cayley.inverse_cayley_differential(Y * h);
+        Vector6d momentum = K * Y.data + mu_offset.data;
+
+        Vector6d r = dcay_inv_hY.transpose() * momentum - dcay_inv_neg_hYk.transpose() * mu_k.data - h * F.data;
+        r_norm = r.norm();
+
+        if (r_norm < newton_tol) {
+            stats.first += (iter + 1);
+            stats.second += 1;
+
+            SE3Transform g_next = g_k.compose(cayley.cayley_map(Y * h).data);
+            vec6 mu_next_data = K * Y.data + mu_offset.data;
+            Vector6D mu_next(mu_next_data);
+
+            return NewtonResult{ g_next, mu_next, Y, true, iter + 1, r_norm };
+        }
+
+        const double eps = 1e-6;
+        Matrix6d J = Matrix6d::Zero();
+
+        for (int i = 0; i < 6; ++i) {
+            Vector6d Y_pert_data = Y.data;
+            Y_pert_data(i) += eps;
+            Vector6D Y_pert(Y_pert_data);
+            Matrix6d dcay_pert = cayley.inverse_cayley_differential(Y_pert * h);
+            Vector6d r_pert = dcay_pert.transpose() * (K * Y_pert.data + mu_offset.data) 
+                                - dcay_inv_neg_hYk.transpose() * mu_k.data - h * F.data;
+
+            J.col(i) = (r_pert - r) / eps;
+        }
+
+        Y = Vector6D(Y.data - J.colPivHouseholderQr().solve(r));
+    }
+
+    std::cerr << "⚠ Newton did not converge (residual: " << r_norm << ")\n";
+    stats.first  += max_newton_iters;
+    stats.second += 1;
+
+    SE3Transform g_next = g_k.compose(cayley.cayley_map(Y * h).data);
+    Vector6D mu_next(K * Y.data + mu_offset.data);
+
+    return NewtonResult{ g_next, mu_next, Y, false, max_newton_iters, r_norm };
+}
+
+SimulationResult FlowIntegrator::simulate(const SE3Transform& g0, const Vector6D& mu0, const Matrix6d& K, const Vector6D& mu_offset, 
+                                          double dt, int num_steps, double mass_body, double volume, double rho_fluid, 
+                                          double ref_area, double C_d = 0.5, bool include_drag = true, bool verbose = false) {
+    // TODO
+
+}

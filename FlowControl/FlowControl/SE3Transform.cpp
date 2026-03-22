@@ -15,7 +15,7 @@ Eigen::Vector3d SE3Transform::t() {
 	return Eigen::Vector3d(this->data.block<3, 1>(0, 3));
 }
 
-SE3Transform SE3Transform::compose(Eigen::Matrix4d other) {
+SE3Transform SE3Transform::compose(Eigen::Matrix4d other) const {
 	return SE3Transform(this->data * other);
 }
 

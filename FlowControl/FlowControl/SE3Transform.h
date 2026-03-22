@@ -21,7 +21,7 @@ public:
     Eigen::Matrix3d R();
     Eigen::Vector3d t();
 
-    SE3Transform compose(Eigen::Matrix4d other);
+    SE3Transform compose(Eigen::Matrix4d other) const;
     SE3Transform __matmul__(Eigen::Matrix4d other);
     SE3Transform inverse();
 	Eigen::Vector3d apply_to_vector(Eigen::Vector3d v);

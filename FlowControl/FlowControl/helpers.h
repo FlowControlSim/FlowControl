@@ -19,6 +19,7 @@ using namespace Eigen;
 typedef Matrix<double, 6, 6> Matrix6d;
 typedef Matrix<double, 3, 3> Matrix3d;
 typedef Vector<double, 3> Vector3d;
+typedef Vector<double, 6> Vector6d;
 
 
 // utility functions

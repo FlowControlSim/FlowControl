@@ -17,7 +17,7 @@
 
 
 #include "helpers.h"
-/*
+
 enum MassDensityType {
     UNIFORM,          // Equal mass per vertex
     VOLUME_WEIGHTED,  // Mass proportional to Voronoi volume
@@ -113,5 +113,5 @@ private:
     bool            m_propertiesComputed;
     bool            m_hasMass;
 };
-*/
+
 #endif // MESHDATA_H

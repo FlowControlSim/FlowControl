@@ -1,7 +1,7 @@
 ﻿#include "CayleyMap.h"
 
-float CayleyMap::sigma(vec3 Y) {
-    float res = Y[0] * Y[0] + Y[1] * Y[1] + Y[2] * Y[2];
+double CayleyMap::sigma(vec3 Y) {
+    double res = Y[0] * Y[0] + Y[1] * Y[1] + Y[2] * Y[2];
     return 2.0 / (1.0 + res);
 }
 

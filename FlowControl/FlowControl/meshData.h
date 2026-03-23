@@ -27,7 +27,7 @@ enum MassDensityType {
 class MeshData {
 public:
   
-    MeshData(const MDagPath& dagPath); 
+    MeshData(const MObject& meshObj);
     MeshData();
     ~MeshData() {};
 
@@ -71,12 +71,10 @@ public:
     const MPoint& getCentroid() const { return m_centroid; }
 
     MStatus validate() const;
-    void printInfo() const;
+    //void printInfo() const;
     bool hasProperties() const { return m_propertiesComputed; }
 
-private:
-
-    MStatus extractMeshData(const MDagPath& dagPath);     /// Extract mesh data from Maya
+    MStatus extractMeshData(const MObject& meshObj);     /// Extract mesh data from Maya
     MStatus triangulateMesh();                            /// Triangulate Maya polygons (handles n-gons)
     MStatus computeFaceProperties();                      /// Compute face normals and areas
     MStatus computeVertexNormals();                       /// Compute vertex normals (area-weighted average)

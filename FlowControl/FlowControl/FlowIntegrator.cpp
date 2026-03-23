@@ -59,8 +59,13 @@ Vector6D FlowIntegrator::compute_body_momentum(const std::vector<Vector3d>& vert
         p_b += gamma_dot * rho_i;
     }
 
-    Matrix6d data;
+    //Matrix6d data;
+    //data << l_b, p_b;
+
+    Vector6d data;
     data << l_b, p_b;
+
+
     return Vector6D(data);
 }
 
@@ -125,7 +130,8 @@ NewtonResult FlowIntegrator::integrate_step_newton(const SE3Transform& g_k, cons
         Y = Vector6D(Y.data - J.colPivHouseholderQr().solve(r));
     }
 
-    std::cerr << "⚠ Newton did not converge (residual: " << r_norm << ")\n";
+    //std::cerr << "⚠ Newton did not converge (residual: " << r_norm << ")\n";
+    std::cerr << "Newton did not converge in (residual: " << r_norm << ")\n";
     stats.first  += max_newton_iters;
     stats.second += 1;
 
@@ -137,7 +143,38 @@ NewtonResult FlowIntegrator::integrate_step_newton(const SE3Transform& g_k, cons
 
 SimulationResult FlowIntegrator::simulate(const SE3Transform& g0, const Vector6D& mu0, const Matrix6d& K, const Vector6D& mu_offset, 
                                           double dt, int num_steps, double mass_body, double volume, double rho_fluid, 
-                                          double ref_area, double C_d = 0.5, bool include_drag = true, bool verbose = false) {
+                                          double ref_area, double C_d, bool include_drag, bool verbose) {
     // TODO
+
+
+	SimulationResult result;
+    
+    SE3Transform g = g0;
+    Vector6D mu = mu0;
+
+    result.trajectory.reserve(num_steps + 1);
+    result.velocities.reserve(num_steps);
+    result.forces.reserve(num_steps);
+    result.convergence.reserve(num_steps);
+
+    result.trajectory.push_back(g.t());
+
+    for (int i = 0; i < num_steps; ++i) {
+
+        Vector6D Y = Vector6D(K.inverse() * (mu.data - mu_offset.data));
+        Vector6D F = compute_total_force(Y, mass_body, volume, rho_fluid, ref_area, C_d, include_drag);
+		NewtonResult nR = integrate_step_newton(g, mu, K, mu_offset, F, dt);
+
+        result.trajectory.push_back(nR.g_next.t());
+        result.velocities.push_back(nR.mu_next.vel());
+        result.forces.push_back(nR.Y.vel());
+        result.convergence.push_back(nR);
+
+    }
+    double avg_iters = stats.first / stats.second;
+
+    result.avg_newton_iters = avg_iters;
+
+    return result;
 
 }

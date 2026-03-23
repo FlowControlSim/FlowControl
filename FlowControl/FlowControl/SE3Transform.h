@@ -15,6 +15,7 @@ class SE3Transform
     */
 public:
     Eigen::Matrix4d data;
+    SE3Transform() : data(Eigen::Matrix4d::Identity()) {};
     SE3Transform(Eigen::Matrix4d data) : data(data) {};
 	virtual ~SE3Transform() {};
 

@@ -10,7 +10,7 @@ public:
 	CayleyMap() {};
     ~CayleyMap() {};
 
-    float sigma(vec3 Y);
+    double sigma(vec3 Y);
     SE3Transform cayley_map(Vector6D Y);
     Vector6D inverse_cayley_map(SE3Transform T);
     Matrix6d cayley_differential(Vector6D Y);

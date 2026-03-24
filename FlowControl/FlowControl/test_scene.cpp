@@ -59,7 +59,7 @@ MStatus testScene::initialize()
 	nAttr.setKeyable(true);
 	addAttribute(dragCoeff);
 
-	mass = nAttr.create("mass", "mass", MFnNumericData::kFloat, 1.0f);
+	mass = nAttr.create("mass", "mass", MFnNumericData::kDouble, 1.0);
 	nAttr.setStorable(true);
 	nAttr.setConnectable(true);
 	nAttr.setKeyable(true);
@@ -71,10 +71,6 @@ MStatus testScene::initialize()
 	attributeAffects(testScene::mass, testScene::outTransform);
 	attributeAffects(testScene::inMesh, testScene::outTransform);
 
-
-	return MStatus::kSuccess;
-
-
 	return status;
 }
 
@@ -83,20 +79,20 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
     MStatus status;
     MStatus returnStatus;
 
+    MGlobal::displayInfo(MString(">> compute called | plug: ") + plug.name());
+
     double mass_body = data.inputValue(testScene::mass, &returnStatus).asDouble();
     double C_d = data.inputValue(testScene::dragCoeff, &returnStatus).asDouble();
     double rho_fluid = data.inputValue(testScene::fluidDensity, &returnStatus).asDouble();
     MObject meshObj = data.inputValue(inMesh).asMesh();
 
-    if (plug == outTransform) {
+    if (plug == outTransform || plug == inTime) {
         MTime currentTime = data.inputValue(inTime).asTime();
         double currentFrame = currentTime.value();
 
         // 1. INITIALIZATION (Frame 1 or earlier)
         if (!m_isInitialized || currentFrame <= 1.0) {
   
-            
-
             // Read mesh from MDataBlock
             MeshData meshData(meshObj);
             
@@ -172,10 +168,12 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             }
         }
 
-        // Write to output plug
-        MDataHandle outHandle = data.outputValue(outTransform);
-        outHandle.setMMatrix(outMat);
-        data.setClean(plug);
+        if (plug == outTransform) {
+            MDataHandle outHandle = data.outputValue(outTransform);
+            outHandle.setMMatrix(outMat);
+            data.setClean(plug);
+        }
+
 
         return MS::kSuccess;
     }

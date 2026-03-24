@@ -76,94 +76,6 @@ MStatus testScene::initialize()
 
 MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
 {
-    // Accept both inTime and outTransform plugs
-    if (plug != outTransform && plug != inTime)
-        return MS::kUnknownParameter;
-
-    // Read input attributes
-    MTime currentTime = data.inputValue(inTime).asTime();
-    double currentFrame = currentTime.value();
-
-    double mass_body = data.inputValue(mass).asDouble();
-    double C_d = data.inputValue(dragCoeff).asDouble();
-    double rho_fluid = data.inputValue(fluidDensity).asDouble();
-    MObject meshObj = data.inputValue(inMesh).asMesh();
-
-    // Initialize simulation at frame 1 or first compute
-    if (!m_isInitialized || currentFrame <= 1.0) {
-
-        MeshData meshData(meshObj);
-        meshData.setMassDensity(mass_body, MassDensityType::UNIFORM, nullptr);
-        meshData.computeProperties();
-
-        std::vector<Vector3d> eigenVertices;
-        eigenVertices.reserve(meshData.m_vertices.length());
-        for (unsigned int i = 0; i < meshData.m_vertices.length(); ++i) {
-            eigenVertices.push_back(Vector3d(meshData.m_vertices[i].x, meshData.m_vertices[i].y, meshData.m_vertices[i].z));
-        }
-
-        FlowIntegrator flowC;
-        m_cachedK = flowC.compute_body_inertia(eigenVertices, meshData.m_massDensity);
-        m_cachedVolume = meshData.m_totalVolume;
-        m_currentG = identity();
-        m_currentMu = Vector6D(vec6::Zero());
-
-        m_previousTime = currentFrame;
-        m_isInitialized = true;
-
-        MGlobal::displayInfo(MString("INIT FRAME 1 | Mass: ") + mass_body + " Volume: " + m_cachedVolume);
-    }
-    else if (currentFrame > m_previousTime) {
-
-        double dt = (currentFrame - m_previousTime) / 24.0; // assumes 24 fps
-
-        FlowIntegrator integrator;
-        double ref_area = 1.0;
-        bool include_drag = true;
-
-        Vector6D Y = Vector6D(m_cachedK.inverse() * m_currentMu.data);
-        Vector6D F = integrator.compute_total_force(Y, mass_body, m_cachedVolume, rho_fluid, ref_area, C_d, include_drag);
-
-        NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, m_cachedK, Vector6D(), F, dt);
-
-        m_currentG = result.g_next;
-        m_currentMu = result.mu_next;
-        m_previousTime = currentFrame;
-
-        MGlobal::displayInfo(MString("SIM STEP | Frame: ") + currentFrame + 
-            " | Force Y: " + F.vel()[1] + 
-            " | Residual: " + result.residual + 
-            " | NEW POS Y: " + m_currentG.t()[1]);
-    }
-    else {
-        // Scrubbing backwards, reset sim
-        m_isInitialized = false;
-        MGlobal::displayWarning(MString("Backwards scrub detected at frame: ") + currentFrame);
-    }
-
-    // Write output matrix
-    MMatrix outMat;
-    for (int r = 0; r < 3; ++r)
-        for (int c = 0; c < 3; ++c)
-            outMat[r][c] = m_currentG.data(r, c);
-
-    outMat[3][0] = m_currentG.data(0, 3);
-    outMat[3][1] = m_currentG.data(1, 3);
-    outMat[3][2] = m_currentG.data(2, 3);
-    outMat[0][3] = 0.0;
-    outMat[1][3] = 0.0;
-    outMat[2][3] = 0.0;
-    outMat[3][3] = 1.0;
-
-    MDataHandle outHandle = data.outputValue(outTransform);
-    outHandle.setMMatrix(outMat);
-    data.setClean(outTransform);
-
-    return MS::kSuccess;
-}
-
-/*MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
-{
     if (plug != outTransform && plug != inTime)
         return MS::kUnknownParameter;
 
@@ -282,20 +194,20 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
 
         /*if (plug != outTransform && plug != inTime) {
             return MS::kUnknownParameter;
-        }*
+        }*/
 
         MDataHandle outHandle = data.outputValue(outTransform);
         outHandle.setMMatrix(outMat);
-        data.setClean(outTransform);
+        data.setClean(plug);
 
         /*if (plug == outTransform) {
             MDataHandle outHandle = data.outputValue(outTransform);
             outHandle.setMMatrix(outMat);
             data.setClean(plug);
-        }*
+        }*/
 
 
         return MS::kSuccess;
     }
     return MS::kUnknownParameter; 
-}*/
+}

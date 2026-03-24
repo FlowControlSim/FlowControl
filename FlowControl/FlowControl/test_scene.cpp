@@ -47,13 +47,13 @@ MStatus testScene::initialize()
 	mAttr.setKeyable(true);
 	addAttribute(outTransform);
 
-	fluidDensity = nAttr.create("fluidDensity", "fd", MFnNumericData::kFloat, 0.1f);
+	fluidDensity = nAttr.create("fluidDensity", "fd", MFnNumericData::kDouble, 0.1f);
 	nAttr.setStorable(true);
 	nAttr.setConnectable(true);
 	nAttr.setKeyable(true);
 	addAttribute(fluidDensity);
 
-	dragCoeff = nAttr.create("dragCoeff", "dragCoeff", MFnNumericData::kFloat, 10.0f);
+	dragCoeff = nAttr.create("dragCoeff", "dragCoeff", MFnNumericData::kDouble, 10.0f);
 	nAttr.setStorable(true);
 	nAttr.setConnectable(true);
 	nAttr.setKeyable(true);
@@ -158,7 +158,7 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
         }
 
 
-        // 3. OUTPUT THE MATRIX
+        // OUTPUT THE MATRIX
         MMatrix outMat;
         // Convert Eigen::Matrix4d (m_currentG.data) to Maya's MMatrix
         for (int r = 0; r < 4; ++r) {

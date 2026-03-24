@@ -28,7 +28,7 @@ struct SimulationResult {
 class ExternalForceComputer {
 public:
     static Vector6D gravity_buoyancy(double mass_body, double volume, double rho_fluid,
-                                     const Vector3d& g_vec = Vector3d(0, 0, -9.81));
+                                     const Vector3d& g_vec = Vector3d(0, -9.81, 0));
 
     static Vector6D drag_simple(const Vector6D& velocity, double rho_fluid, double ref_area, double C_d = 0.5);
 };

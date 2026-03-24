@@ -10,7 +10,7 @@ SE3Transform CayleyMap::cayley_map(Vector6D Y) {
 	Vector3d y = { Y.data[3], Y.data[4], Y.data[5] };
 
     Matrix3d x_skew = skew(x);
-    float sig = CayleyMap::sigma(x);
+    double sig = CayleyMap::sigma(x);
 
     Matrix3d I = Matrix3d::Identity();
 
@@ -47,7 +47,7 @@ Matrix6d CayleyMap::cayley_differential(Vector6D Y) {
     Vector3d x = Y.omega();
     Vector3d y = Y.vel();
 
-    float sig = CayleyMap::sigma(x);
+    double sig = CayleyMap::sigma(x);
     Matrix3d x_skew = skew(x);
     Matrix3d y_skew = skew(y);
     Matrix3d I3 = Matrix3d::Identity();
@@ -68,7 +68,7 @@ Matrix6d CayleyMap::inverse_cayley_differential(Vector6D Y) {
     Vector3d x = Y.omega();
     Vector3d y = Y.vel();
 
-    float sig = CayleyMap::sigma(x);
+    double sig = CayleyMap::sigma(x);
     Matrix3d x_skew = skew(x);
     Matrix3d y_skew = skew(y);
     Matrix3d I3 = Matrix3d::Identity();

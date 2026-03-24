@@ -81,30 +81,30 @@ MStatus testScene::initialize()
 MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
 {
     MStatus status;
+    MStatus returnStatus;
+
+    double mass_body = data.inputValue(testScene::mass, &returnStatus).asDouble();
+    double C_d = data.inputValue(testScene::dragCoeff, &returnStatus).asDouble();
+    double rho_fluid = data.inputValue(testScene::fluidDensity, &returnStatus).asDouble();
+    MObject meshObj = data.inputValue(inMesh).asMesh();
 
     if (plug == outTransform) {
         MTime currentTime = data.inputValue(inTime).asTime();
         double currentFrame = currentTime.value();
 
         // 1. INITIALIZATION (Frame 1 or earlier)
-        if (currentFrame <= 1.0) {
-            // CRITICAL FIX: Do NOT declare these as new variables (e.g., Vector6d m_currentG = ...). 
-            // You must assign to the class member variables, otherwise the state is lost when the block ends!
-            m_currentG = identity(); // identity() is from SE3Transform.h
-            m_currentMu = Vector6D(vec6::Zero());
+        if (!m_isInitialized || currentFrame <= 1.0) {
+  
+            
 
             // Read mesh from MDataBlock
-            MObject meshObj = data.inputValue(inMesh).asMesh();
-            MeshData meshData;
-            meshData.extractMeshData(meshObj);
-
+            MeshData meshData(meshObj);
+            
             // Set mass before computing properties so centroid/inertia have weights
             // (Assuming you have a mass attribute, or hardcode for now)
-            double totalMass = 1.0;
-            meshData.setMassDensity(totalMass, MassDensityType::UNIFORM, nullptr);
+            meshData.setMassDensity(mass_body, MassDensityType::UNIFORM, nullptr);
             meshData.computeProperties();
-
-            // CONVERSION: Maya MPointArray to Eigen std::vector<Vector3d>
+          
             std::vector<Vector3d> eigenVertices;
             eigenVertices.reserve(meshData.m_vertices.length());
             for (unsigned int i = 0; i < meshData.m_vertices.length(); ++i) {
@@ -114,25 +114,24 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             // Compute and CACHE the inertia matrix
             FlowIntegrator flowC;
             m_cachedK = flowC.compute_body_inertia(eigenVertices, meshData.m_massDensity);
-
-            // Cache volume for buoyancy calculations later
             m_cachedVolume = meshData.m_totalVolume;
+            m_currentG = identity();
+            m_currentMu = Vector6D(vec6::Zero());
+
+            MGlobal::displayInfo(MString("INIT FRAME 1. Mass: ") + mass_body + " Volume: " + m_cachedVolume);
 
             m_previousTime = currentFrame;
+            m_isInitialized = true;
+
         }
-        // 2. SIMULATION STEP (Moving forward in time)
-        else if (currentFrame > m_previousTime) {
+        else if (m_isInitialized && currentFrame > m_previousTime) {
             // Calculate dt in seconds (Assuming 24 fps, you could also read this from Maya's MTime::uiUnit())
             double dt = (currentFrame - m_previousTime) / 24.0;
 
             // Flow Integrator setup
             FlowIntegrator integrator;
 
-            // TODO: Read these from node attributes in the future. Hardcoded for testing.
-            double mass_body = 1.0;
-            double rho_fluid = 1.225; // Air density
             double ref_area = 1.0;    // Reference area for drag
-            double C_d = 0.5;         // Drag coefficient
             bool include_drag = true;
 
             // Compute forces and integrate
@@ -143,11 +142,25 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
 
             NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, m_cachedK, Vector6D(), F, dt);
 
+            MGlobal::displayInfo(MString("SIM STEP | Frame: ") + currentFrame +
+                " | Force Y: " + F.vel()[1] +
+                " | Residual: " + result.residual);
+
             // Update internal Node State
             m_currentG = result.g_next;
             m_currentMu = result.mu_next;
             m_previousTime = currentFrame;
+
+            MGlobal::displayInfo(MString("NEW POS Y: ") + m_currentG.t()[1]);
         }
+        else {
+            // This branch means currentFrame <= m_previousTime (scrubbing backwards)
+            MGlobal::displayWarning(MString("Backwards scrub detected at frame: ") + currentFrame
+                + " prevTime was: " + m_previousTime);
+            // Reset so next forward play re-initializes
+            m_isInitialized = false;
+        }
+
 
         // 3. OUTPUT THE MATRIX
         MMatrix outMat;

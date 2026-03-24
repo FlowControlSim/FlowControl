@@ -22,7 +22,7 @@ MStatus MeshData::extractMeshData(const MObject& meshObj) {
     MStatus status;
 
     status = m_meshFn.setObject(meshObj);
-
+    CHECK_MSTATUS_AND_RETURN_IT(status);
     // Extract vertices in world space
     status = m_meshFn.getPoints(m_vertices, MSpace::kWorld);
     if (status != MS::kSuccess) {
@@ -31,16 +31,16 @@ MStatus MeshData::extractMeshData(const MObject& meshObj) {
     }
 
     // Extract polygon connectivity
-    status = m_meshFn.getVertices(m_polygonFaces, m_polygonFaces);
+    status = m_meshFn.getVertices(m_triangleFaces, m_polygonFaces);
     if (status != MS::kSuccess) {
-        MGlobal::displayError("MeshData: Failed to get polygon connectivity");
+        MGlobal::displayError("MeshData: Failed to get polygon vertex connectivity");
         return status;
     }
 
-    // Triangulate (convert n-gons to triangles)
-    status = triangulateMesh();
+    MIntArray triangleCounts; 
+    status = m_meshFn.getTriangles(triangleCounts, m_triangleFaces);
     if (status != MS::kSuccess) {
-        MGlobal::displayError("MeshData: Triangulation failed");
+        MGlobal::displayError("MeshData: Failed to get polygon triangle connectivity");
         return status;
     }
 
@@ -55,7 +55,8 @@ MStatus MeshData::triangulateMesh() {
     MStatus status;
     m_triangleFaces.clear();
 
-    MItMeshPolygon polyIter(m_dagPath, MObject::kNullObj, &status);
+    MObject meshObj = m_meshFn.object();
+    MItMeshPolygon polyIter(meshObj, &status);
     CHECK_MSTATUS_AND_RETURN_IT(status);
 
     for (; !polyIter.isDone(); polyIter.next()) {
@@ -279,10 +280,13 @@ MStatus MeshData::computeMeanCurvatures() {
     unsigned int N = m_vertices.length();
     m_meanCurvatures.resize(N, 0.0);
 
+    MStatus status;
+
     // Simplified mean curvature approximation
     // For production: use cotangent Laplacian from libigl or similar
+    MObject localMeshObj = m_meshFn.object();
 
-    MItMeshVertex vertIter(m_dagPath);
+    MItMeshVertex vertIter(localMeshObj, &status);
     for (unsigned int i = 0; !vertIter.isDone(); vertIter.next(), ++i) {
         // Get 1-ring neighbors
         MIntArray connectedVertices;

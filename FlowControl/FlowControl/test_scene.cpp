@@ -76,6 +76,12 @@ MStatus testScene::initialize()
 
 MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
 {
+    if (plug != outTransform && plug != inTime)
+        return MS::kUnknownParameter;
+
+    MTime currentTime = data.inputValue(inTime).asTime();
+    double currentFrame = currentTime.value();
+
     MStatus status;
     MStatus returnStatus;
 
@@ -87,8 +93,8 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
     MObject meshObj = data.inputValue(inMesh).asMesh();
 
     if (plug == outTransform || plug == inTime) {
-        MTime currentTime = data.inputValue(inTime).asTime();
-        double currentFrame = currentTime.value();
+        //MTime currentTime = data.inputValue(inTime).asTime();
+        //double currentFrame = currentTime.value();
 
         // 1. INITIALIZATION (Frame 1 or earlier)
         if (!m_isInitialized || currentFrame <= 1.0) {
@@ -158,21 +164,47 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
         }
 
 
-        // OUTPUT THE MATRIX
+
         MMatrix outMat;
-        // Convert Eigen::Matrix4d (m_currentG.data) to Maya's MMatrix
-        for (int r = 0; r < 4; ++r) {
-            for (int c = 0; c < 4; ++c) {
-                // Maya matrices are accessed as [row][col]
-                outMat[r][c] = m_currentG.data(c, r);
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 3; ++c) {
+                outMat[r][c] = m_currentG.data(r, c);
             }
         }
 
-        if (plug == outTransform) {
+        outMat[3][0] = m_currentG.data(0, 3);
+        outMat[3][1] = m_currentG.data(1, 3);
+        outMat[3][2] = m_currentG.data(2, 3);
+        outMat[0][3] = 0.0;
+        outMat[1][3] = 0.0;
+        outMat[2][3] = 0.0;
+        outMat[3][3] = 1.0;
+
+
+        //// OUTPUT THE MATRIX
+        //MMatrix outMat;
+        //// Convert Eigen::Matrix4d (m_currentG.data) to Maya's MMatrix
+        //for (int r = 0; r < 4; ++r) {
+        //    for (int c = 0; c < 4; ++c) {
+        //        // Maya matrices are accessed as [row][col]
+        //        //outMat[r][c] = m_currentG.data(c, r);
+        //        outMat[r][c] = m_currentG.data(r, c);
+        //    }
+        //}
+
+        /*if (plug != outTransform && plug != inTime) {
+            return MS::kUnknownParameter;
+        }*/
+
+        MDataHandle outHandle = data.outputValue(outTransform);
+        outHandle.setMMatrix(outMat);
+        data.setClean(plug);
+
+        /*if (plug == outTransform) {
             MDataHandle outHandle = data.outputValue(outTransform);
             outHandle.setMMatrix(outMat);
             data.setClean(plug);
-        }
+        }*/
 
 
         return MS::kSuccess;

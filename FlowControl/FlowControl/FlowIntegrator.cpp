@@ -29,12 +29,23 @@ Vector6D ExternalForceComputer::drag_simple(const Vector6D& velocity, double rho
 // flow integrator class
 
 Matrix6d FlowIntegrator::compute_body_inertia(const std::vector<Vector3d>& vertices, const std::vector<double>& mass_density) {
+    // compute center of mass
+    Vector3d com = Vector3d::Zero();
+    double total_mass = 0.0;
+
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        com += vertices[i] * mass_density[i];
+        total_mass += mass_density[i];
+    }
+    com /= total_mass;
+
     Matrix3d I_ww = Matrix3d::Zero();
     Matrix3d I_wv = Matrix3d::Zero();
     Matrix3d I_vv = Matrix3d::Zero();
 
     for (size_t i = 0; i < vertices.size(); ++i) {
-        Matrix3d gammaX = skew(vertices[i]);
+		Vector3d r_i = vertices[i] - com;
+        Matrix3d gammaX = skew(r_i);
         double rho_i  = mass_density[i];
         I_ww += gammaX.transpose() * gammaX * rho_i;
         I_wv += gammaX * rho_i;
@@ -144,9 +155,6 @@ NewtonResult FlowIntegrator::integrate_step_newton(const SE3Transform& g_k, cons
 SimulationResult FlowIntegrator::simulate(const SE3Transform& g0, const Vector6D& mu0, const Matrix6d& K, const Vector6D& mu_offset, 
                                           double dt, int num_steps, double mass_body, double volume, double rho_fluid, 
                                           double ref_area, double C_d, bool include_drag, bool verbose) {
-    // TODO
-
-
 	SimulationResult result;
     
     SE3Transform g = g0;

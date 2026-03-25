@@ -12,7 +12,8 @@ MObject testScene::dragCoeff;
 MObject testScene::mass;
 MObject testScene::inTime;
 MObject testScene::outTransform;
-
+MObject testScene::liftCoeff;
+MObject testScene::angularDrag;
 
 void* testScene::creator()
 {
@@ -65,6 +66,20 @@ MStatus testScene::initialize()
 	nAttr.setKeyable(true);
     addAttribute(mass);
 
+    liftCoeff = nAttr.create("liftCoeff", "lc", MFnNumericData::kFloat, 0.8f);
+    nAttr.setStorable(true);
+    nAttr.setConnectable(true);
+    nAttr.setKeyable(true);
+    addAttribute(liftCoeff);
+
+    angularDrag = nAttr.create("angularDrag", "ad", MFnNumericData::kFloat, 0.02f);
+    nAttr.setStorable(true);
+    nAttr.setConnectable(true);
+    nAttr.setKeyable(true);
+    addAttribute(angularDrag);
+
+    attributeAffects(testScene::liftCoeff, testScene::outTransform);
+    attributeAffects(testScene::angularDrag, testScene::outTransform);
 	attributeAffects(testScene::inTime, testScene::outTransform);
 	attributeAffects(testScene::fluidDensity, testScene::outTransform);
 	attributeAffects(testScene::dragCoeff, testScene::outTransform);
@@ -89,6 +104,8 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
 
     double mass_body = data.inputValue(testScene::mass, &returnStatus).asDouble();
     double C_d = data.inputValue(testScene::dragCoeff, &returnStatus).asDouble();
+    double C_l = data.inputValue(testScene::liftCoeff, &returnStatus).asDouble();
+    double k_ang = data.inputValue(testScene::angularDrag, &returnStatus).asDouble();
     double rho_fluid = data.inputValue(testScene::fluidDensity, &returnStatus).asDouble();
     MObject meshObj = data.inputValue(inMesh).asMesh();
 
@@ -118,7 +135,10 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             m_cachedK = flowC.compute_body_inertia(eigenVertices, meshData.m_massDensity);
             m_cachedVolume = meshData.m_totalVolume;
             m_currentG = identity();
-            m_currentMu = Vector6D(vec6::Zero());
+            vec6 init;
+            init << 0.05, 0.01, 0.0,   // small angular momentum (wx, wy, wz)
+                0.0, 0.0, 0.0;   // zero linear momentum
+            m_currentMu = Vector6D(init);
 
             MGlobal::displayInfo(MString("INIT FRAME 1. Mass: ") + mass_body + " Volume: " + m_cachedVolume);
 
@@ -129,6 +149,8 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
         else if (m_isInitialized && currentFrame > m_previousTime) {
             // Calculate dt in seconds (Assuming 24 fps, you could also read this from Maya's MTime::uiUnit())
             double dt = (currentFrame - m_previousTime) / 24.0;
+            int substeps = 10;
+            double dt_sub = dt / substeps;
 
             // Flow Integrator setup
             FlowIntegrator integrator;
@@ -139,10 +161,27 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             // Compute forces and integrate
             // Note: We need the current velocity (Y), which is K_inv * mu
             Vector6D Y = Vector6D(m_cachedK.inverse() * m_currentMu.data);
+            Vector3d body_normal(0.0, 1.0, 0.0);
+            Matrix3d R = m_currentG.data.block<3, 3>(0, 0);  // rotation part of SE3
+            Vector3d leaf_normal_world = R * body_normal;
 
-            Vector6D F = integrator.compute_total_force(Y, mass_body, m_cachedVolume, rho_fluid, ref_area, C_d, include_drag);
+            // Transform body velocity to world frame for force computation
+            Vector6d Y_world_data;
+            Y_world_data << R * Y.omega(), R* Y.vel();
+            Vector6D Y_world(Y_world_data);
 
-            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, m_cachedK, Vector6D(), F, dt);
+            Vector6D F = integrator.compute_total_force(
+                Y_world, mass_body, m_cachedVolume, rho_fluid,
+                ref_area, C_d, C_l, k_ang,
+                leaf_normal_world, include_drag
+            );
+
+            Vector6d F_body_data;
+            F_body_data << R.transpose() * F.omega(),
+                R.transpose()* F.vel();
+            Vector6D F_body(F_body_data);
+
+            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, m_cachedK, Vector6D(), F_body, dt);
 
             MGlobal::displayInfo(MString("SIM STEP | Frame: ") + currentFrame +
                 " | Force Y: " + F.vel()[1] +

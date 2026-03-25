@@ -29,6 +29,8 @@ public:
     static MObject mass;
     static MObject outTransform;
     static MObject inTime;
+    static MObject liftCoeff;
+    static MObject angularDrag;
 
 private:
     double m_previousTime = 0.0; 

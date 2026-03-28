@@ -100,7 +100,7 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
     MStatus status;
     MStatus returnStatus;
 
-    MGlobal::displayInfo(MString(">> compute called | plug: ") + plug.name());
+    //MGlobal::displayInfo(MString(">> compute called | plug: ") + plug.name());
 
     double mass_body = data.inputValue(testScene::mass, &returnStatus).asDouble();
     double C_d = data.inputValue(testScene::dragCoeff, &returnStatus).asDouble();
@@ -140,7 +140,7 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
                 0.0, 0.0, 0.0;   // zero linear momentum
             m_currentMu = Vector6D(init);
 
-            MGlobal::displayInfo(MString("INIT FRAME 1. Mass: ") + mass_body + " Volume: " + m_cachedVolume);
+            //MGlobal::displayInfo(MString("INIT FRAME 1. Mass: ") + mass_body + " Volume: " + m_cachedVolume);
 
             m_previousTime = currentFrame;
             m_isInitialized = true;
@@ -181,12 +181,12 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
                 R.transpose()* F.vel();
             Vector6D F_body(F_body_data);
 
-            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, m_cachedK, Vector6D(), F_body, dt);
-
+            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, m_cachedK, Vector6D(), F_body, dt_sub);
+            /*
             MGlobal::displayInfo(MString("SIM STEP | Frame: ") + currentFrame +
                 " | Force Y: " + F.vel()[1] +
                 " | Residual: " + result.residual);
-
+            */
             // Update internal Node State
             m_currentG = result.g_next;
             m_currentMu = result.mu_next;
@@ -202,7 +202,7 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             m_isInitialized = false;
         }
 
-
+        //// OUTPUT THE MATRIX
 
         MMatrix outMat;
         for (int r = 0; r < 3; ++r) {
@@ -220,30 +220,10 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
         outMat[3][3] = 1.0;
 
 
-        //// OUTPUT THE MATRIX
-        //MMatrix outMat;
-        //// Convert Eigen::Matrix4d (m_currentG.data) to Maya's MMatrix
-        //for (int r = 0; r < 4; ++r) {
-        //    for (int c = 0; c < 4; ++c) {
-        //        // Maya matrices are accessed as [row][col]
-        //        //outMat[r][c] = m_currentG.data(c, r);
-        //        outMat[r][c] = m_currentG.data(r, c);
-        //    }
-        //}
-
-        /*if (plug != outTransform && plug != inTime) {
-            return MS::kUnknownParameter;
-        }*/
 
         MDataHandle outHandle = data.outputValue(outTransform);
         outHandle.setMMatrix(outMat);
         data.setClean(plug);
-
-        /*if (plug == outTransform) {
-            MDataHandle outHandle = data.outputValue(outTransform);
-            outHandle.setMMatrix(outMat);
-            data.setClean(plug);
-        }*/
 
 
         return MS::kSuccess;

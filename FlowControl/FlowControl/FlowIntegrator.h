@@ -49,7 +49,9 @@ public:
                                    double dt);
 
     Vector6D compute_total_force(const Vector6D& velocity, double mass_body, double volume, double rho_fluid,
-                                 double ref_area, double C_d = 0.5, bool include_drag = true);
+        double ref_area, double C_d = 0.5, double C_l = 0.8, double k_ang = 0.02, const Vector3d& leaf_normal_world = Vector3d(0,1,0),
+        bool include_drag = true);
+    
 
     NewtonResult integrate_step_newton(const SE3Transform& g_k, const Vector6D& mu_k, const Matrix6d& K,
                                        const Vector6D& mu_offset, const Vector6D& F, double dt);

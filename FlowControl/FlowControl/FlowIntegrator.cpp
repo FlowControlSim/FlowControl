@@ -26,6 +26,33 @@ Vector6D ExternalForceComputer::drag_simple(const Vector6D& velocity, double rho
 }
 
 
+static Vector6D lift(const Vector6D& velocity, const Vector3d& leaf_normal_world,
+    double rho_fluid, double ref_area, double C_l) {
+    Vector3d v = velocity.vel();
+    double v_norm = v.norm();
+    if (v_norm < 1e-10) return Vector6D();
+
+    Vector3d v_hat = v / v_norm;
+    // Lift acts perpendicular to velocity, in the plane of v and the leaf normal
+    Vector3d lift_dir = v_hat.cross(leaf_normal_world).cross(v_hat);
+    double lift_mag_norm = lift_dir.norm();
+    if (lift_mag_norm < 1e-10) return Vector6D();
+    lift_dir /= lift_mag_norm;
+
+    double F_mag = 0.5 * rho_fluid * ref_area * C_l * v_norm * v_norm;
+    Vector6d data;
+    data << Vector3d::Zero(), F_mag* lift_dir;
+    return Vector6D(data);
+}
+
+static Vector6D angular_drag(const Vector6D& velocity, double k_ang) {
+    // Damps spinning so leaf tumbles rather than spinning forever
+    Vector6d data;
+    data << -k_ang * velocity.omega(), Vector3d::Zero();
+    return Vector6D(data);
+}
+
+
 // flow integrator class
 
 Matrix6d FlowIntegrator::compute_body_inertia(const std::vector<Vector3d>& vertices, const std::vector<double>& mass_density) {
@@ -81,11 +108,16 @@ Vector6D FlowIntegrator::compute_body_momentum(const std::vector<Vector3d>& vert
 }
 
 Vector6D FlowIntegrator::compute_total_force(const Vector6D& velocity, double mass_body, double volume,
-                                             double rho_fluid, double ref_area, double C_d, bool include_drag) {
+                                                                    double rho_fluid, double ref_area,
+                                                                    double C_d, double C_l, double k_ang,
+                                                                    const Vector3d& leaf_normal_world,
+                                                                    bool include_drag) {
     Vector6D F = ExternalForceComputer::gravity_buoyancy(mass_body, volume, rho_fluid);
 
     if (include_drag) {
         F = F + ExternalForceComputer::drag_simple(velocity, rho_fluid, ref_area, C_d);
+        F = F + lift(velocity, leaf_normal_world, rho_fluid, ref_area, C_l);
+        F = F + angular_drag(velocity, k_ang);
     }
 
     return F;

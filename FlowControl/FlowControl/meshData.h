@@ -79,6 +79,7 @@ public:
     MStatus computeFaceProperties();                      /// Compute face normals and areas
     MStatus computeVertexNormals();                       /// Compute vertex normals (area-weighted average)
     MStatus computeMeanCurvatures();                      /// Compute mean curvature using cotangent Laplacian
+    double computeInverseAverageMeanCurvature();           /// Compute 1/H for mean curvature flow
     MStatus computeVolume();                              /// Compute mesh volume (for closed meshes)
     MStatus computeCentroid();                            /// Compute center of mass
 

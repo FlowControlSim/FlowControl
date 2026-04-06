@@ -38,6 +38,7 @@ private:
     Vector6D m_currentMu;
     Matrix6d m_cachedK;
     double m_cachedVolume = 0.0;
+    double m_cachedDelta = 0.0;
     bool m_isInitialized = false;
 };
 

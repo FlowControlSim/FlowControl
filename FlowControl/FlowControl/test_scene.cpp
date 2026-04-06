@@ -48,31 +48,31 @@ MStatus testScene::initialize()
 	mAttr.setKeyable(true);
 	addAttribute(outTransform);
 
-	fluidDensity = nAttr.create("fluidDensity", "fd", MFnNumericData::kDouble, 0.1f);
+	fluidDensity = nAttr.create("fluidDensity", "fd", MFnNumericData::kDouble, 1.225f);
 	nAttr.setStorable(true);
 	nAttr.setConnectable(true);
 	nAttr.setKeyable(true);
 	addAttribute(fluidDensity);
 
-	dragCoeff = nAttr.create("dragCoeff", "dragCoeff", MFnNumericData::kDouble, 10.0f);
+	dragCoeff = nAttr.create("dragCoeff", "dragCoeff", MFnNumericData::kDouble, 1.2f);
 	nAttr.setStorable(true);
 	nAttr.setConnectable(true);
 	nAttr.setKeyable(true);
 	addAttribute(dragCoeff);
 
-	mass = nAttr.create("mass", "mass", MFnNumericData::kDouble, 1.0);
+	mass = nAttr.create("mass", "mass", MFnNumericData::kDouble, 0.003);
 	nAttr.setStorable(true);
 	nAttr.setConnectable(true);
 	nAttr.setKeyable(true);
     addAttribute(mass);
 
-    liftCoeff = nAttr.create("liftCoeff", "lc", MFnNumericData::kFloat, 0.8f);
+    liftCoeff = nAttr.create("liftCoeff", "lc", MFnNumericData::kFloat, 0.05f);
     nAttr.setStorable(true);
     nAttr.setConnectable(true);
     nAttr.setKeyable(true);
     addAttribute(liftCoeff);
 
-    angularDrag = nAttr.create("angularDrag", "ad", MFnNumericData::kFloat, 0.02f);
+    angularDrag = nAttr.create("angularDrag", "ad", MFnNumericData::kFloat, 2.0f);
     nAttr.setStorable(true);
     nAttr.setConnectable(true);
     nAttr.setKeyable(true);
@@ -118,27 +118,48 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
   
             // Read mesh from MDataBlock
             MeshData meshData(meshObj);
+
+            const double MAYA_TO_METERS = 0.01;
+            const double VOLUME_SCALE = MAYA_TO_METERS * MAYA_TO_METERS * MAYA_TO_METERS; // 1e-6
+
+            m_cachedVolume = meshData.m_totalVolume * VOLUME_SCALE;
+
+            double tilt = M_PI / 12.0; // 15 degrees
+            Matrix4d tiltMat = Matrix4d::Identity();
+            tiltMat(0, 0) = cos(tilt);
+            tiltMat(0, 1) = -sin(tilt);
+            tiltMat(1, 0) = sin(tilt);
+            tiltMat(1, 1) = cos(tilt);
+
+            SE3Transform tiltedG;
+            tiltedG.data = tiltMat;
+            m_currentG = tiltedG;
+
+            // Keep a small seed angular momentum
+            vec6 init;
+            init << 0.0001, 0.0002, 0.0001,   // tiny angular seed in all 3 axes
+                0.0, 0.0, 0.0;
+            m_currentMu = Vector6D(init);
+
             
             // Set mass before computing properties so centroid/inertia have weights
             // (Assuming you have a mass attribute, or hardcode for now)
             meshData.setMassDensity(mass_body, MassDensityType::UNIFORM, nullptr);
             meshData.computeProperties();
+
+            double delta = meshData.computeInverseAverageMeanCurvature();
           
             std::vector<Vector3d> eigenVertices;
             eigenVertices.reserve(meshData.m_vertices.length());
             for (unsigned int i = 0; i < meshData.m_vertices.length(); ++i) {
-                eigenVertices.push_back(Vector3d(meshData.m_vertices[i].x, meshData.m_vertices[i].y, meshData.m_vertices[i].z));
+                eigenVertices.push_back(Vector3d(meshData.m_vertices[i].x * MAYA_TO_METERS, meshData.m_vertices[i].y * MAYA_TO_METERS, meshData.m_vertices[i].z * MAYA_TO_METERS));
             }
 
             // Compute and CACHE the inertia matrix
             FlowIntegrator flowC;
             m_cachedK = flowC.compute_body_inertia(eigenVertices, meshData.m_massDensity);
-            m_cachedVolume = meshData.m_totalVolume;
-            m_currentG = identity();
-            vec6 init;
-            init << 0.05, 0.01, 0.0,   // small angular momentum (wx, wy, wz)
-                0.0, 0.0, 0.0;   // zero linear momentum
-            m_currentMu = Vector6D(init);
+            //m_cachedVolume = meshData.m_totalVolume;
+            m_cachedDelta = delta;
 
             //MGlobal::displayInfo(MString("INIT FRAME 1. Mass: ") + mass_body + " Volume: " + m_cachedVolume);
 
@@ -180,19 +201,59 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             F_body_data << R.transpose() * F.omega(),
                 R.transpose()* F.vel();
             Vector6D F_body(F_body_data);
+			//Vector6d F_world(F);
 
-            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, m_cachedK, Vector6D(), F_body, dt_sub);
-            /*
-            MGlobal::displayInfo(MString("SIM STEP | Frame: ") + currentFrame +
-                " | Force Y: " + F.vel()[1] +
-                " | Residual: " + result.residual);
-            */
-            // Update internal Node State
-            m_currentG = result.g_next;
-            m_currentMu = result.mu_next;
-            m_previousTime = currentFrame;
+            if (plug == outTransform) {
 
-            MGlobal::displayInfo(MString("NEW POS Y: ") + m_currentG.t()[1]);
+                for (int s = 0; s < substeps; ++s) {
+                    // Recompute R and normals each substep since G changes
+                    R = m_currentG.data.block<3, 3>(0, 0);
+                    leaf_normal_world = R.col(1);
+
+                    Y = Vector6D(m_cachedK.inverse() * m_currentMu.data);
+                    Y_world_data << R * Y.omega(), R* Y.vel();
+                    Y_world = Vector6D(Y_world_data);
+
+                    F = integrator.compute_total_force(
+                        Y_world, mass_body, m_cachedVolume, rho_fluid,
+                        ref_area, C_d, C_l, k_ang, leaf_normal_world, include_drag
+                    );
+
+                    F_body_data << R.transpose() * F.omega(), R.transpose()* F.vel();
+                    F_body = Vector6D(F_body_data);
+
+                    NewtonResult result = integrator.integrate_step_newton(
+                        m_currentG, m_currentMu, m_cachedK, Vector6D(), F_body, dt_sub
+                    );
+
+                    if (!result.converged) break;
+
+                    // Correct clamp - work in velocity space:
+                    Matrix6d K_inv = m_cachedK.inverse();
+                    Vector6d Y_next = K_inv * result.mu_next.data;
+                    Vector3d ang_vel = Y_next.head<3>();
+                    double max_ang_speed = M_PI; // 0.5 rev/sec
+
+                    if (ang_vel.norm() > max_ang_speed) {
+                        Vector6d Y_clamped = Y_next;
+                        Y_clamped.head<3>() = ang_vel.normalized() * max_ang_speed;
+                        // Convert back to momentum
+                        m_currentMu = Vector6D(m_cachedK * Y_clamped);
+                    }
+                    else {
+                        m_currentMu = result.mu_next;
+                    }
+
+                    m_currentG = result.g_next;
+                }
+
+                // Diagnostics using last substep's values
+                MGlobal::displayInfo(MString("LeafNormal: ") +
+                    leaf_normal_world.x() + " " + leaf_normal_world.y() + " " + leaf_normal_world.z());
+                MGlobal::displayInfo(MString("NEW POS Y: ") + m_currentG.t()[1]);
+
+                m_previousTime = currentFrame;
+            }
         }
         else {
             // This branch means currentFrame <= m_previousTime (scrubbing backwards)

@@ -276,49 +276,91 @@ MStatus MeshData::computeVertexNormals() {
     return MS::kSuccess;
 }
 
+// H(vᵢ) = (1/2A) |Σⱼ (cot αᵢⱼ + cot βᵢⱼ)(vᵢ - vⱼ)|
 MStatus MeshData::computeMeanCurvatures() {
     unsigned int N = m_vertices.length();
     m_meanCurvatures.resize(N, 0.0);
+    std::vector<double> vertexAreas(N, 0.0);
+    unsigned int numTris = numTriangles();
 
     MStatus status;
 
-    // Simplified mean curvature approximation
-    // For production: use cotangent Laplacian from libigl or similar
-    MObject localMeshObj = m_meshFn.object();
+    for (unsigned int t = 0; t < numTris; ++t) {
+        unsigned int idx[3] = {
+            static_cast<unsigned int>(m_triangleFaces[3 * t]),
+            static_cast<unsigned int>(m_triangleFaces[3 * t + 1]),
+            static_cast<unsigned int>(m_triangleFaces[3 * t + 2])
+        };
 
-    MItMeshVertex vertIter(localMeshObj, &status);
-    for (unsigned int i = 0; !vertIter.isDone(); vertIter.next(), ++i) {
-        // Get 1-ring neighbors
-        MIntArray connectedVertices;
-        vertIter.getConnectedVertices(connectedVertices);
+        MPoint p[3] = {m_vertices[idx[0]], m_vertices[idx[1]], m_vertices[idx[2]]};
 
-        if (connectedVertices.length() < 2) {
-            m_meanCurvatures[i] = 0.0;
-            continue;
-        }
+        for (int i = 0; i < 3; ++i) {
+            int j = (i + 1) % 3;
+            int k = (i + 2) % 3;
 
-        MPoint vi = m_vertices[i];
+            MVector ej = MVector(p[i]) - MVector(p[k]);
+            MVector ek = MVector(p[i]) - MVector(p[j]);
 
-        // Average distance to neighbors (approximate local radius)
-        double avgDist = 0.0;
-        for (unsigned int j = 0; j < connectedVertices.length(); ++j) {
-            MPoint vj = m_vertices[connectedVertices[j]];
-            avgDist += vi.distanceTo(vj);
-        }
-        avgDist /= connectedVertices.length();
+            double cos_angle = ej * ek;
+            double sin_angle = (ej ^ ek).length();
+            double cot_angle = (sin_angle > 1e-10) ? cos_angle / sin_angle : 0.0;
 
-        // Mean curvature ≈ 1 / local_radius
-        // (Simplified - for accurate results, use cotangent weights)
-        if (avgDist > 1e-10) {
-            m_meanCurvatures[i] = 1.0 / avgDist;
-        }
-        else {
-            m_meanCurvatures[i] = 0.0;
+            // Accumulate mean curvature contrib
+            MVector diff = MVector(p[i]) - MVector(p[j]);
+            m_meanCurvatures[idx[i]] += cot_angle * diff.length();
+            m_meanCurvatures[idx[j]] += cot_angle * diff.length();
+
+			vertexAreas[idx[i]] += m_faceAreas[t] / 3.0;  // Voronoi area approximation
+            vertexAreas[idx[j]] += m_faceAreas[t] / 3.0;
         }
     }
 
+    for (unsigned int i = 0; i < N; ++i) {
+        if (vertexAreas[i] > 1e-10) {
+            m_meanCurvatures[i] = 0.5 * m_meanCurvatures[i] / vertexAreas[i];
+        }
+    }
+
+   
+
     return MS::kSuccess;
 
+}
+
+
+double MeshData::computeInverseAverageMeanCurvature() {
+    if (!m_propertiesComputed) {
+        MGlobal::displayError("MeshData: computeProperties() must be called first");
+        return 0.0;
+    }
+
+    double totalArea = 0.0;  // ∫ dA  (numerator)
+    double curvatureIntegral = 0.0; // ∫ H dA (denominator)
+
+    unsigned int numTris = numTriangles();
+
+    for (unsigned int i = 0; i < numTris; ++i) {
+        unsigned int v0 = m_triangleFaces[3 * i];
+        unsigned int v1 = m_triangleFaces[3 * i + 1];
+        unsigned int v2 = m_triangleFaces[3 * i + 2];
+
+        double area = m_faceAreas[i];
+
+        // Interpolate H at face center from vertex curvatures (linear approx)
+        double H_face = (m_meanCurvatures[v0] +
+            m_meanCurvatures[v1] +
+            m_meanCurvatures[v2]) / 3.0;
+
+        totalArea += area;
+        curvatureIntegral += H_face * area;
+    }
+
+    if (curvatureIntegral < 1e-10) {
+        MGlobal::displayWarning("MeshData: Mean curvature integral near zero - flat mesh?");
+        return 0.0;
+    }
+
+    return 0.5 * totalArea / curvatureIntegral;
 }
 
 MStatus MeshData::computeVolume() {

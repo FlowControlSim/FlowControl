@@ -80,6 +80,58 @@ Vector6D FlowIntegrator::compute_body_momentum(const std::vector<Vector3d>& vert
     return Vector6D(data);
 }
 
+Matrix6d FlowIntegrator::compute_added_mass_tensor(const MeshData& mesh, double rho_fluid) {
+    // compute face areas
+    std::vector<double> face_areas = mesh.m_faceAreas;
+
+    // compute face normals
+    std::vector<MVector> face_normals;
+    int normals_num = mesh.m_faceNormals.length();
+    face_normals.reserve(normals_num);
+    for (unsigned int i = 0; i < normals_num; ++i) {
+        face_normals.push_back(mesh.m_faceNormals[i]);
+    }
+
+    // compute delta
+    double numer_sum = std::accumulate(face_areas.begin(), face_areas.end(), 0.0);
+    double denom_sum = 0.0;
+
+    for (const Edge& e : mesh.m_edges) {
+        if (e.f1 == -1) {
+            // edge has only one face so we skip it
+            continue;
+        }
+        double alpha = mesh.getEdgeDihedralAngle(e);
+        denom_sum += alpha * e.length;
+    }
+
+    double delta = numer_sum / denom_sum;
+
+    // compute added mass tensor
+    Matrix6d I = Matrix6d::Zero();
+
+    for (int i = 0; i < mesh.numTriangles(); ++i) {
+        MPoint x_maya = mesh.m_faceCenters[i];
+        Vector3d x(x_maya.x, x_maya.y, x_maya.z); // face center
+        MVector n_maya = mesh.m_faceNormals[i];
+        Vector3d n(n_maya.x, n_maya.y, n_maya.z); // face normal
+        double A = face_areas[i]; // face area
+
+        Vector3d xn = x.cross(n);
+
+        Matrix3d A11 = xn * xn.transpose();
+        Matrix3d A12 = xn * n.transpose();
+        Matrix3d A21 = n * xn.transpose();
+        Matrix3d A22 = n * n.transpose();
+
+        Matrix6d J;
+        J << A11, A12, A21, A22;
+        I += rho_fluid * delta * A * J;
+    }
+
+    return I;
+}
+
 Vector6D FlowIntegrator::compute_total_force(const Vector6D& velocity, double mass_body, double volume,
                                              double rho_fluid, double ref_area, double C_d, bool include_drag) {
     Vector6D F = ExternalForceComputer::gravity_buoyancy(mass_body, volume, rho_fluid);

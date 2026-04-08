@@ -15,6 +15,7 @@
 #include <maya/MStatus.h>
 #include <maya/MGlobal.h>
 
+#include <map>
 
 #include "helpers.h"
 
@@ -22,6 +23,13 @@ enum MassDensityType {
     UNIFORM,          // Equal mass per vertex
     VOLUME_WEIGHTED,  // Mass proportional to Voronoi volume
     CUSTOM            // User-provided array
+};
+
+struct Edge {
+    int v0, v1;          // vertex indices (ordered: v0 < v1)
+    int f0 = -1;         // first adjacent face
+    int f1 = -1;         // second adjacent face
+	double length = 0.0; // edge length (m)
 };
 
 class MeshData {
@@ -69,6 +77,7 @@ public:
     double getMeanCurvature(unsigned int i) const;
     double getTotalVolume() const { return m_totalVolume; }
     const MPoint& getCentroid() const { return m_centroid; }
+    double getEdgeDihedralAngle(const Edge& e) const;
 
     MStatus validate() const;
     //void printInfo() const;
@@ -81,6 +90,7 @@ public:
     MStatus computeMeanCurvatures();                      /// Compute mean curvature using cotangent Laplacian
     MStatus computeVolume();                              /// Compute mesh volume (for closed meshes)
     MStatus computeCentroid();                            /// Compute center of mass
+	MStatus buildEdges();                                 /// Build edge list with adjacency info
 
     static void skewSymmetric(const MVector& v, double skew[9]);     /// Helper: Compute 3×3 skew-symmetric matrix from vector
     static double triangleArea(const MPoint& p0, const MPoint& p1, const MPoint& p2);     /// Helper: Triangle area from 3 points
@@ -89,6 +99,7 @@ public:
     MPointArray     m_vertices;        // (N,) vertex positions in world space
     MIntArray       m_polygonFaces;    // Maya polygon vertex indices
     MIntArray       m_triangleFaces;   // Triangulated faces (every 3 = 1 triangle)
+	std::vector<Edge> m_edges;         // Mesh edges with adjacency info
 
     MFnMesh         m_meshFn;
     MDagPath        m_dagPath;

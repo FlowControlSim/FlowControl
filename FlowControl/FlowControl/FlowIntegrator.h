@@ -3,10 +3,12 @@
 #include <Eigen/Dense>
 #include <vector>
 #include <iostream>
+#include <numeric>
 #include "Vector6D.h"
 #include "SE3Transform.h"
 #include "CayleyMap.h"
 #include "helpers.h"
+#include "meshData.h"
 
 struct NewtonResult {
     SE3Transform g_next;
@@ -25,6 +27,7 @@ struct SimulationResult {
     double avg_newton_iters;
 };
 
+
 class ExternalForceComputer {
 public:
     static Vector6D gravity_buoyancy(double mass_body, double volume, double rho_fluid,
@@ -32,7 +35,6 @@ public:
 
     static Vector6D drag_simple(const Vector6D& velocity, double rho_fluid, double ref_area, double C_d = 0.5);
 };
-
 
 
 class FlowIntegrator {
@@ -47,6 +49,8 @@ public:
                                    const std::vector<Vector3d>& vertices_k1,
                                    const std::vector<double>& mass_density,
                                    double dt);
+
+    Matrix6d compute_added_mass_tensor(const MeshData& mesh, double rho_fluid);
 
     Vector6D compute_total_force(const Vector6D& velocity, double mass_body, double volume, double rho_fluid,
                                  double ref_area, double C_d = 0.5, bool include_drag = true);

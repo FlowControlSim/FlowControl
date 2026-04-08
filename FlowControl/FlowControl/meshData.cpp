@@ -174,6 +174,26 @@ double MeshData::getMeanCurvature(unsigned int i) const {
     return m_meanCurvatures[i];
 }
 
+double MeshData::getEdgeDihedralAngle(const Edge& e) const
+{
+    // boundary edge so ignore it
+    if (e.f0 < 0 || e.f1 < 0) {
+        return 0.0;
+    }
+
+    const MVector& n0 = m_faceNormals[e.f0];
+    const MVector& n1 = m_faceNormals[e.f1];
+
+    MVector edgeDir = m_vertices[e.v1] - m_vertices[e.v0];
+    edgeDir.normalize();
+
+    double sinTheta = (n0 ^ n1) * edgeDir; // cross + dot
+    double cosTheta = n0 * n1;
+    double alpha = atan2(sinTheta, cosTheta);
+
+    return alpha;
+}
+
 MStatus MeshData::computeProperties() {
     MStatus status;
 
@@ -192,6 +212,9 @@ MStatus MeshData::computeProperties() {
 
     status = computeCentroid();
     CHECK_MSTATUS_AND_RETURN_IT(status);
+
+	status = buildEdges();
+	CHECK_MSTATUS_AND_RETURN_IT(status);
 
     m_propertiesComputed = true;
 
@@ -364,6 +387,56 @@ MStatus MeshData::computeCentroid() {
             sum += MVector(m_vertices[i]) * m_massDensity[i];
         }
         m_centroid = MPoint(sum / m_totalMass);
+    }
+
+    return MS::kSuccess;
+}
+
+MStatus MeshData::buildEdges()
+{
+    std::map<std::pair<int,int>, Edge> edgeMap;
+
+    int numTris = numTriangles();
+
+    for (int f = 0; f < numTris; f++) {
+        int i0 = m_triangleFaces[3*f];
+        int i1 = m_triangleFaces[3*f + 1];
+        int i2 = m_triangleFaces[3*f + 2];
+
+        int vids[3] = {i0, i1, i2};
+
+        for (int e = 0; e < 3; e++) {
+            int a = vids[e];
+            int b = vids[(e + 1) % 3];
+
+			// enforce ordering of vertices in edge (v0 < v1) for consistent hashing
+            int v0 = std::min(a, b);
+            int v1 = std::max(a, b);
+
+            auto key = std::make_pair(v0, v1);
+
+            if (edgeMap.find(key) == edgeMap.end()) {
+                Edge edge;
+                edge.v0 = v0;
+                edge.v1 = v1;
+                edge.f0 = f;
+
+                // length computation
+                const MPoint& p0 = m_vertices[v0];
+                const MPoint& p1 = m_vertices[v1];
+                edge.length = (p1 - p0).length();
+
+                edgeMap[key] = edge;
+            } else {
+                edgeMap[key].f1 = f;
+            }
+        }
+    }
+
+    // move into member variable vector
+    m_edges.clear();
+    for (auto& kv : edgeMap) {
+        m_edges.push_back(kv.second);
     }
 
     return MS::kSuccess;

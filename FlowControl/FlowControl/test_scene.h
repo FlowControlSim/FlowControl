@@ -36,6 +36,7 @@ private:
     Vector6D m_currentMu;
     Matrix6d m_cachedK;
     double m_cachedVolume = 0.0;
+    std::vector<Vector3d> m_cachedVertices;
     bool m_isInitialized = false;
 };
 

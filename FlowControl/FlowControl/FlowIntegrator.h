@@ -43,6 +43,8 @@ public:
     FlowIntegrator(int max_newton_iters = 20, double newton_tol = 1e-8)
         : max_newton_iters(max_newton_iters), newton_tol(newton_tol), stats(std::pair<int, int>(0, 0)) {}
 
+    float compute_delta(std::vector<double> face_areas, std::vector<MVector> face_normals, const MeshData& mesh);
+
     Matrix6d compute_body_inertia(const std::vector<Vector3d>& vertices, const std::vector<double>& mass_density);
 
     Vector6D compute_body_momentum(const std::vector<Vector3d>& vertices_k,
@@ -51,6 +53,10 @@ public:
                                    double dt);
 
     Matrix6d compute_added_mass_tensor(const MeshData& mesh, double rho_fluid);
+
+    Vector6D compute_fluid_momentum(const std::vector<Vector3d>& vertices_k,
+                                    const std::vector<Vector3d>& vertices_k1,
+                                    const MeshData& mesh, double rho_fluid, double dt);
 
     Vector6D compute_total_force(const Vector6D& velocity, double mass_body, double volume, double rho_fluid,
                                  double ref_area, double C_d = 0.5, bool include_drag = true);

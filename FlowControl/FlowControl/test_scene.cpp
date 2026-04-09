@@ -107,15 +107,18 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             meshData.setMassDensity(mass_body, MassDensityType::UNIFORM, nullptr);
             meshData.computeProperties();
           
-            std::vector<Vector3d> eigenVertices;
-            eigenVertices.reserve(meshData.m_vertices.length());
+            std::vector<Vector3d> m_cachedVertices;
+            m_cachedVertices.reserve(meshData.m_vertices.length());
             for (unsigned int i = 0; i < meshData.m_vertices.length(); ++i) {
-                eigenVertices.push_back(Vector3d(meshData.m_vertices[i].x, meshData.m_vertices[i].y, meshData.m_vertices[i].z));
+                m_cachedVertices.push_back(Vector3d(meshData.m_vertices[i].x, meshData.m_vertices[i].y, meshData.m_vertices[i].z));
             }
 
             // Compute and CACHE the inertia matrix
             FlowIntegrator flowC;
-            m_cachedK = flowC.compute_body_inertia(eigenVertices, meshData.m_massDensity);
+            Matrix6d I_body = flowC.compute_body_inertia(m_cachedVertices, meshData.m_massDensity);
+            Matrix6d I_fluid = flowC.compute_added_mass_tensor(meshData, rho_fluid);
+            m_cachedK = I_body + I_fluid;
+
             m_cachedVolume = meshData.m_totalVolume;
             m_currentG = identity();
             m_currentMu = Vector6D(vec6::Zero());
@@ -130,19 +133,47 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             // Calculate dt in seconds (Assuming 24 fps, you could also read this from Maya's MTime::uiUnit())
             double dt = (currentFrame - m_previousTime) / 24.0;
 
+            // get vertices at current frame
+            MeshData meshData(meshObj);
+            meshData.setMassDensity(mass_body, MassDensityType::UNIFORM, nullptr);
+            meshData.computeProperties();
+
+            std::vector<Vector3d> vertices_k1;
+            vertices_k1.reserve(meshData.numVertices());
+            for (unsigned int i = 0; i < meshData.numVertices(); ++i) {
+                vertices_k1.emplace_back(meshData.m_vertices[i].x,
+                    meshData.m_vertices[i].y,
+                    meshData.m_vertices[i].z);
+            }
+
+
             // Flow Integrator setup
             FlowIntegrator integrator;
 
             double ref_area = 1.0;    // Reference area for drag
             bool include_drag = true;
 
+            // compute all forces from algorithms
+            Matrix6d I_body = integrator.compute_body_inertia(vertices_k1, meshData.m_massDensity);
+            Vector6D mu0_body = integrator.compute_body_momentum(m_cachedVertices, vertices_k1, meshData.m_massDensity, dt);
+
+            Matrix6d I_fluid = integrator.compute_added_mass_tensor(meshData, rho_fluid);
+            Vector6D mu0_fluid = integrator.compute_fluid_momentum(m_cachedVertices, vertices_k1, meshData, rho_fluid, dt);
+
+            const Matrix6d K_t = I_body + I_fluid;
+            const Vector6D mu0 = mu0_body + mu0_fluid;
+
+            // current velocity Y, which is K_inv * mu
+            const Vector6D Y = Vector6D(K_t.inverse() * (m_currentMu.data - mu0.data));
+            const Vector6D F = integrator.compute_total_force(Y, mass_body, m_cachedVolume, rho_fluid, ref_area, C_d, include_drag);
+
+            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, K_t, mu0, F, dt);
+
+
             // Compute forces and integrate
             // Note: We need the current velocity (Y), which is K_inv * mu
-            Vector6D Y = Vector6D(m_cachedK.inverse() * m_currentMu.data);
-
-            Vector6D F = integrator.compute_total_force(Y, mass_body, m_cachedVolume, rho_fluid, ref_area, C_d, include_drag);
-
-            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, m_cachedK, Vector6D(), F, dt);
+            /*Vector6D Y = Vector6D(m_cachedK.inverse() * m_currentMu.data);
+            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, m_cachedK, Vector6D(), F, dt);*/
 
             MGlobal::displayInfo(MString("SIM STEP | Frame: ") + currentFrame +
                 " | Force Y: " + F.vel()[1] +
@@ -151,6 +182,8 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             // Update internal Node State
             m_currentG = result.g_next;
             m_currentMu = result.mu_next;
+            m_cachedVertices = vertices_k1;
+            m_cachedK = K_t;
             m_previousTime = currentFrame;
 
             MGlobal::displayInfo(MString("NEW POS Y: ") + m_currentG.t()[1]);

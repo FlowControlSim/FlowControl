@@ -31,6 +31,9 @@ public:
     static MObject inTime;
     static MObject liftCoeff;
     static MObject angularDrag;
+    static MObject targetMatrix;
+    static MObject animStiffness;
+    static MObject animDamping;
 
 private:
     double m_previousTime = 0.0; 

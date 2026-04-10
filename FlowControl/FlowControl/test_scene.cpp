@@ -14,6 +14,9 @@ MObject testScene::inTime;
 MObject testScene::outTransform;
 MObject testScene::liftCoeff;
 MObject testScene::angularDrag;
+MObject testScene::targetMatrix;
+MObject testScene::animStiffness;
+MObject testScene::animDamping;
 
 void* testScene::creator()
 {
@@ -78,6 +81,23 @@ MStatus testScene::initialize()
     nAttr.setKeyable(true);
     addAttribute(angularDrag);
 
+    targetMatrix = mAttr.create("targetMatrix", "tm");
+    mAttr.setStorable(true);
+    mAttr.setConnectable(true);
+    addAttribute(targetMatrix);
+
+    animStiffness = nAttr.create("animStiffness", "as", MFnNumericData::kDouble, 10.0);
+    nAttr.setStorable(true);
+    nAttr.setConnectable(true);
+    nAttr.setKeyable(true);
+    addAttribute(animStiffness);
+
+    animDamping = nAttr.create("animDamping", "ad2", MFnNumericData::kDouble, 5.0);
+    nAttr.setStorable(true);
+    nAttr.setConnectable(true);
+    nAttr.setKeyable(true);
+    addAttribute(animDamping);
+
     attributeAffects(testScene::liftCoeff, testScene::outTransform);
     attributeAffects(testScene::angularDrag, testScene::outTransform);
 	attributeAffects(testScene::inTime, testScene::outTransform);
@@ -85,6 +105,9 @@ MStatus testScene::initialize()
 	attributeAffects(testScene::dragCoeff, testScene::outTransform);
 	attributeAffects(testScene::mass, testScene::outTransform);
 	attributeAffects(testScene::inMesh, testScene::outTransform);
+    attributeAffects(testScene::targetMatrix, testScene::outTransform);
+    attributeAffects(testScene::animStiffness, testScene::outTransform);
+    attributeAffects(testScene::animDamping, testScene::outTransform);
 
 	return status;
 }
@@ -100,9 +123,6 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
     MStatus status;
     MStatus returnStatus;
 
-    //MGlobal::displayInfo(MString(">> compute called | plug: ") + plug.name());
-
-
 
     if (plug == outTransform || plug == inTime) {
         //MTime currentTime = data.inputValue(inTime).asTime();
@@ -114,6 +134,10 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
         double k_ang = data.inputValue(testScene::angularDrag, &returnStatus).asDouble();
         double rho_fluid = data.inputValue(testScene::fluidDensity, &returnStatus).asDouble();
         MObject meshObj = data.inputValue(inMesh).asMesh();
+        double stiffness = data.inputValue(testScene::animStiffness).asDouble();
+        double anim_damp = data.inputValue(testScene::animDamping).asDouble();
+        MMatrix targetMat = data.inputValue(testScene::targetMatrix).asMatrix();
+        Vector3d target_pos(targetMat[3][0], targetMat[3][1], targetMat[3][2]);
 
 
         // 1. INITIALIZATION (Frame 1 or earlier)
@@ -169,7 +193,6 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
                     meshData.m_vertices[i].z);
             }
 
-
             // Flow Integrator setup
             FlowIntegrator integrator;
 
@@ -190,7 +213,20 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             const Vector6D Y = Vector6D(K_t.inverse() * (m_currentMu.data - mu0.data));
             const Vector6D F = integrator.compute_total_force(Y, mass_body, m_cachedVolume, rho_fluid, ref_area, C_d, include_drag);
 
-            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, K_t, mu0, F, dt);
+            Vector3d pos_error = target_pos - m_currentG.t();
+            Vector3d f_guide_linear = (stiffness * pos_error) - (anim_damp * Y.vel());
+
+            // Transform guide force into body frame
+            Matrix3d R = m_currentG.data.block<3, 3>(0, 0);
+            Vector3d f_guide_body = R.transpose() * f_guide_linear;
+
+            Vector6d F_guide_data;
+            F_guide_data << Vector3d::Zero(), f_guide_body;
+            Vector6D F_guide(F_guide_data);
+
+            Vector6D F_total = F + F_guide;
+
+            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, K_t, mu0, F_total, dt);
 
 
             // Compute forces and integrate

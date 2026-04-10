@@ -102,16 +102,19 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
 
     //MGlobal::displayInfo(MString(">> compute called | plug: ") + plug.name());
 
-    double mass_body = data.inputValue(testScene::mass, &returnStatus).asDouble();
-    double C_d = data.inputValue(testScene::dragCoeff, &returnStatus).asDouble();
-    double C_l = data.inputValue(testScene::liftCoeff, &returnStatus).asDouble();
-    double k_ang = data.inputValue(testScene::angularDrag, &returnStatus).asDouble();
-    double rho_fluid = data.inputValue(testScene::fluidDensity, &returnStatus).asDouble();
-    MObject meshObj = data.inputValue(inMesh).asMesh();
+
 
     if (plug == outTransform || plug == inTime) {
         //MTime currentTime = data.inputValue(inTime).asTime();
         //double currentFrame = currentTime.value();
+
+        double mass_body = data.inputValue(testScene::mass, &returnStatus).asDouble();
+        double C_d = data.inputValue(testScene::dragCoeff, &returnStatus).asDouble();
+        double C_l = data.inputValue(testScene::liftCoeff, &returnStatus).asDouble();
+        double k_ang = data.inputValue(testScene::angularDrag, &returnStatus).asDouble();
+        double rho_fluid = data.inputValue(testScene::fluidDensity, &returnStatus).asDouble();
+        MObject meshObj = data.inputValue(inMesh).asMesh();
+
 
         // 1. INITIALIZATION (Frame 1 or earlier)
         if (!m_isInitialized || currentFrame <= 1.0) {
@@ -124,7 +127,7 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             meshData.setMassDensity(mass_body, MassDensityType::UNIFORM, nullptr);
             meshData.computeProperties();
           
-            std::vector<Vector3d> m_cachedVertices;
+            m_cachedVertices.clear();
             m_cachedVertices.reserve(meshData.m_vertices.length());
             for (unsigned int i = 0; i < meshData.m_vertices.length(); ++i) {
                 m_cachedVertices.push_back(Vector3d(meshData.m_vertices[i].x, meshData.m_vertices[i].y, meshData.m_vertices[i].z));

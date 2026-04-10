@@ -68,6 +68,10 @@ float FlowIntegrator::compute_delta(std::vector<double> face_areas, std::vector<
         denom_sum += alpha * e.length;
     }
 
+    if (std::abs(denom_sum) < 1e-8) {
+        return static_cast<float>(std::sqrt(numer_sum));
+    }
+
     double delta = numer_sum / denom_sum;
     return delta;
 }

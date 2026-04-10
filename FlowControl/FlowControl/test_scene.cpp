@@ -97,12 +97,6 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
     MTime currentTime = data.inputValue(inTime).asTime();
     double currentFrame = currentTime.value();
 
-    if (plug != outTransform && plug != inTime)
-        return MS::kUnknownParameter;
-
-    MTime currentTime = data.inputValue(inTime).asTime();
-    double currentFrame = currentTime.value();
-
     MStatus status;
     MStatus returnStatus;
 
@@ -200,7 +194,7 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             // Note: We need the current velocity (Y), which is K_inv * mu
             /*Vector6D Y = Vector6D(m_cachedK.inverse() * m_currentMu.data);
             NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, m_cachedK, Vector6D(), F, dt);*/
-
+            /*
             MGlobal::displayInfo(MString("SIM STEP | Frame: ") + currentFrame +
                 " | Force Y: " + F.vel()[1] +
                 " | Residual: " + result.residual);
@@ -224,7 +218,6 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
 
         //// OUTPUT THE MATRIX
 
-
         MMatrix outMat;
         for (int r = 0; r < 3; ++r) {
             for (int c = 0; c < 3; ++c) {
@@ -241,30 +234,9 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
         outMat[3][3] = 1.0;
 
 
-        //// OUTPUT THE MATRIX
-        //MMatrix outMat;
-        //// Convert Eigen::Matrix4d (m_currentG.data) to Maya's MMatrix
-        //for (int r = 0; r < 4; ++r) {
-        //    for (int c = 0; c < 4; ++c) {
-        //        // Maya matrices are accessed as [row][col]
-        //        //outMat[r][c] = m_currentG.data(c, r);
-        //        outMat[r][c] = m_currentG.data(r, c);
-        //    }
-        //}
-
-        /*if (plug != outTransform && plug != inTime) {
-            return MS::kUnknownParameter;
-        }*/
-
         MDataHandle outHandle = data.outputValue(outTransform);
         outHandle.setMMatrix(outMat);
         data.setClean(plug);
-
-        /*if (plug == outTransform) {
-            MDataHandle outHandle = data.outputValue(outTransform);
-            outHandle.setMMatrix(outMat);
-            data.setClean(plug);
-        }*/
 
 
         return MS::kSuccess;

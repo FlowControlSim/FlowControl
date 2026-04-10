@@ -55,6 +55,23 @@ static Vector6D angular_drag(const Vector6D& velocity, double k_ang) {
 
 // flow integrator class
 
+float FlowIntegrator::compute_delta(std::vector<double> face_areas, std::vector<MVector> face_normals, const MeshData& mesh) {
+    double numer_sum = std::accumulate(face_areas.begin(), face_areas.end(), 0.0);
+    double denom_sum = 0.0;
+
+    for (const Edge& e : mesh.m_edges) {
+        if (e.f1 == -1) {
+            // edge has only one face so we skip it
+            continue;
+        }
+        double alpha = mesh.getEdgeDihedralAngle(e);
+        denom_sum += alpha * e.length;
+    }
+
+    double delta = numer_sum / denom_sum;
+    return delta;
+}
+
 Matrix6d FlowIntegrator::compute_body_inertia(const std::vector<Vector3d>& vertices, const std::vector<double>& mass_density) {
     // compute center of mass
     Vector3d com = Vector3d::Zero();
@@ -103,6 +120,97 @@ Vector6D FlowIntegrator::compute_body_momentum(const std::vector<Vector3d>& vert
     Vector6d data;
     data << l_b, p_b;
 
+
+    return Vector6D(data);
+}
+
+Matrix6d FlowIntegrator::compute_added_mass_tensor(const MeshData& mesh, double rho_fluid) {
+    // compute face areas
+    std::vector<double> face_areas = mesh.m_faceAreas;
+
+    // compute face normals
+    std::vector<MVector> face_normals;
+    int normals_num = mesh.m_faceNormals.length();
+    face_normals.reserve(normals_num);
+    for (unsigned int i = 0; i < normals_num; ++i) {
+        face_normals.push_back(mesh.m_faceNormals[i]);
+    }
+
+    // compute delta
+	double delta = compute_delta(face_areas, face_normals, mesh);
+
+    // compute added mass tensor
+    Matrix6d I = Matrix6d::Zero();
+
+    for (int i = 0; i < mesh.numTriangles(); ++i) {
+        MPoint x_maya = mesh.m_faceCenters[i];
+        Vector3d x(x_maya.x, x_maya.y, x_maya.z); // face center
+        MVector n_maya = mesh.m_faceNormals[i];
+        Vector3d n(n_maya.x, n_maya.y, n_maya.z); // face normal
+        double A = face_areas[i]; // face area
+
+        Vector3d xn = x.cross(n);
+
+        Matrix3d A11 = xn * xn.transpose();
+        Matrix3d A12 = xn * n.transpose();
+        Matrix3d A21 = A12.transpose();
+        Matrix3d A22 = n * n.transpose();
+
+        Matrix6d J = Matrix6d::Zero();
+        J << A11, A12,
+             A21, A22;
+        I += rho_fluid * delta * A * J;
+    }
+
+    return I;
+}
+
+Vector6D FlowIntegrator::compute_fluid_momentum(const std::vector<Vector3d>& vertices_k,
+                                                const std::vector<Vector3d>& vertices_k1,
+                                                const MeshData& mesh, double rho_fluid, double dt) {
+    // compute face areas
+    std::vector<double> face_areas = mesh.m_faceAreas;
+
+    // compute face normals
+    std::vector<MVector> face_normals;
+    int normals_num = mesh.m_faceNormals.length();
+    face_normals.reserve(normals_num);
+    for (unsigned int i = 0; i < normals_num; ++i) {
+        face_normals.push_back(mesh.m_faceNormals[i]);
+    }
+
+    // compute delta
+    const double delta = compute_delta(face_areas, face_normals, mesh);
+
+	// compute fluid momentum
+    const double prefactor = rho_fluid * delta;
+
+    Vector3d l_f = Vector3d::Zero();
+    Vector3d p_f = Vector3d::Zero();
+
+    for (int i = 0; i < mesh.numTriangles(); ++i) {
+        // triangle vertices
+        const int i0 = mesh.m_triangleFaces[3 * i];
+        const int i1 = mesh.m_triangleFaces[3 * i + 1];
+        const int i2 = mesh.m_triangleFaces[3 * i + 2];
+
+        const Vector3d gamma_dot_face = ((vertices_k1[i0] - vertices_k[i0]) +
+                                         (vertices_k1[i1] - vertices_k[i1]) +
+                                         (vertices_k1[i2] - vertices_k[i2])) / (3.0 * dt);
+        const Vector3d gamma_face = (vertices_k[i0] + vertices_k[i1] + vertices_k[i2]) / 3.0;
+
+        const double A = face_areas[i];
+        const MVector& n_maya = mesh.m_faceNormals[i];
+        const Vector3d n(n_maya.x, n_maya.y, n_maya.z);
+
+		// update fluid momentum
+        const double gdot_n = gamma_dot_face.dot(n);
+        l_f += prefactor * gdot_n * gamma_face.cross(n) * A;
+        p_f += prefactor * gdot_n * n * A;
+    }
+
+    Vector6d data;
+    data << l_f, p_f;
 
     return Vector6D(data);
 }

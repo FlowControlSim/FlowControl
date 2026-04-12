@@ -10,39 +10,43 @@ Vector6D ExternalForceComputer::gravity_buoyancy(double mass_body, double volume
     return Vector6D(data);
 }
 
-Vector6D ExternalForceComputer::drag_simple(const Vector6D& velocity, double rho_fluid, double ref_area, double C_d) {
-    Vector3d v = velocity.vel();
-    double v_norm = v.norm();
+Vector6D FlowIntegrator::compute_lift_drag_force(
+    const Vector6D& Y, const MeshData& mesh, double rho_fluid)
+{
+    Vector3d omega = Y.omega();  // angular velocity (body frame)
+    Vector3d v = Y.vel();    // linear velocity  (body frame)
 
-    if (v_norm < 1e-10) {
-        return Vector6D();
+    const double M = 0.01;
+
+    Vector3d torque = Vector3d::Zero();
+    Vector3d force = Vector3d::Zero();
+
+    for (int i = 0; i < mesh.numTriangles(); ++i) {
+        // Face center in body frame
+        const MPoint& c = mesh.m_faceCenters[i];
+        Vector3d gamma_face(c.x * M , c.y * M, c.z * M);
+
+        // Rigid body velocity at face center (body frame)
+        Vector3d u_face = omega.cross(gamma_face) + v;
+        double u_norm = u_face.norm();
+        if (u_norm < 1e-10) continue;
+
+        const MVector& nM = mesh.m_faceNormals[i];
+        Vector3d n(nM.x, nM.y, nM.z);
+        double A = mesh.m_faceAreas[i] * M * M;
+
+        double u_dot_n = u_face.dot(n);
+
+        // combined lift+drag
+        force += -rho_fluid * u_norm * u_dot_n * n * A;
+        torque += -rho_fluid * u_norm * u_dot_n * gamma_face.cross(n) * A;
     }
 
-    double F_mag = 0.5 * rho_fluid * ref_area * C_d * v_norm * v_norm;
-    Vector3d F = -F_mag * (v / v_norm);
+    // Factor of 1/2 for closed surfaces (each face appears from both sides)
     Vector6d data;
-    data << Vector3d::Zero(), F;
+    data << 0.5 * torque, 0.5 * force;
     return Vector6D(data);
-}
 
-
-static Vector6D lift(const Vector6D& velocity, const Vector3d& leaf_normal_world,
-    double rho_fluid, double ref_area, double C_l) {
-    Vector3d v = velocity.vel();
-    double v_norm = v.norm();
-    if (v_norm < 1e-10) return Vector6D();
-
-    Vector3d v_hat = v / v_norm;
-    // Lift acts perpendicular to velocity, in the plane of v and the leaf normal
-    Vector3d lift_dir = v_hat.cross(leaf_normal_world).cross(v_hat);
-    double lift_mag_norm = lift_dir.norm();
-    if (lift_mag_norm < 1e-10) return Vector6D();
-    lift_dir /= lift_mag_norm;
-
-    double F_mag = 0.5 * rho_fluid * ref_area * C_l * v_norm * v_norm;
-    Vector6d data;
-    data << Vector3d::Zero(), F_mag* lift_dir;
-    return Vector6D(data);
 }
 
 static Vector6D angular_drag(const Vector6D& velocity, double k_ang) {
@@ -132,6 +136,8 @@ Matrix6d FlowIntegrator::compute_added_mass_tensor(const MeshData& mesh, double 
     // compute face areas
     std::vector<double> face_areas = mesh.m_faceAreas;
 
+    const double M = 0.01;
+
     // compute face normals
     std::vector<MVector> face_normals;
     int normals_num = mesh.m_faceNormals.length();
@@ -141,17 +147,17 @@ Matrix6d FlowIntegrator::compute_added_mass_tensor(const MeshData& mesh, double 
     }
 
     // compute delta
-	double delta = compute_delta(face_areas, face_normals, mesh);
+	double delta = compute_delta(face_areas, face_normals, mesh) * M;
 
     // compute added mass tensor
     Matrix6d I = Matrix6d::Zero();
 
     for (int i = 0; i < mesh.numTriangles(); ++i) {
         MPoint x_maya = mesh.m_faceCenters[i];
-        Vector3d x(x_maya.x, x_maya.y, x_maya.z); // face center
+        Vector3d x(x_maya.x * M, x_maya.y * M, x_maya.z * M); // face center
         MVector n_maya = mesh.m_faceNormals[i];
         Vector3d n(n_maya.x, n_maya.y, n_maya.z); // face normal
-        double A = face_areas[i]; // face area
+        double A = face_areas[i] * M * M; // face area
 
         Vector3d xn = x.cross(n);
 
@@ -220,15 +226,14 @@ Vector6D FlowIntegrator::compute_fluid_momentum(const std::vector<Vector3d>& ver
 }
 
 Vector6D FlowIntegrator::compute_total_force(const Vector6D& velocity, double mass_body, double volume,
-                                                                    double rho_fluid, double ref_area,
+                                                                    double rho_fluid, double ref_area, const MeshData& mesh,
                                                                     double C_d, double C_l, double k_ang,
                                                                     const Vector3d& leaf_normal_world,
                                                                     bool include_drag) {
     Vector6D F = ExternalForceComputer::gravity_buoyancy(mass_body, volume, rho_fluid);
 
     if (include_drag) {
-        F = F + ExternalForceComputer::drag_simple(velocity, rho_fluid, ref_area, C_d);
-        F = F + lift(velocity, leaf_normal_world, rho_fluid, ref_area, C_l);
+        F = F + compute_lift_drag_force(velocity, mesh, rho_fluid);
         F = F + angular_drag(velocity, k_ang);
     }
 
@@ -237,7 +242,7 @@ Vector6D FlowIntegrator::compute_total_force(const Vector6D& velocity, double ma
 
 
 NewtonResult FlowIntegrator::integrate_step_newton(const SE3Transform& g_k, const Vector6D& mu_k, const Matrix6d& K,
-                                                   const Vector6D& mu_offset, const Vector6D& F, double dt) {
+                                                   const Vector6D& mu_offset, const Vector6D& F, double dt, const MeshData& mesh, double rho_fluid, double k_ang) {
     const double h = dt;
     const Matrix6d K_inv = K.inverse();
 
@@ -250,11 +255,23 @@ NewtonResult FlowIntegrator::integrate_step_newton(const SE3Transform& g_k, cons
     double r_norm = 0.0;
     int iter = 0;
 
+    // Lambda to compute the total force at given Y
+    auto total_force_at_Y = [&](const Vector6D& Y_eval) -> Vector6D {
+        Vector6D F_ld = compute_lift_drag_force(Y_eval, mesh, rho_fluid);
+        vec6 ang_drag_data;
+        ang_drag_data.head<3>() = -k_ang * Y_eval.omega();
+		ang_drag_data.tail<3>() = Vector3d::Zero();
+        Vector6D ang_drag(ang_drag_data);
+        return F_ld + ang_drag + F.data;
+    };
+
     for (iter = 0; iter < max_newton_iters; ++iter) {
         Matrix6d dcay_inv_hY = cayley.inverse_cayley_differential(Y * h);
         Vector6d momentum = K * Y.data + mu_offset.data;
 
-        Vector6d r = dcay_inv_hY.transpose() * momentum - dcay_inv_neg_hYk.transpose() * mu_k.data - h * F.data;
+        Vector6d F_total = total_force_at_Y(Y).data;
+
+        Vector6d r = dcay_inv_hY.transpose() * momentum - dcay_inv_neg_hYk.transpose() * mu_k.data - h * F_total;
         r_norm = r.norm();
 
         if (r_norm < newton_tol) {
@@ -276,8 +293,10 @@ NewtonResult FlowIntegrator::integrate_step_newton(const SE3Transform& g_k, cons
             Y_pert_data(i) += eps;
             Vector6D Y_pert(Y_pert_data);
             Matrix6d dcay_pert = cayley.inverse_cayley_differential(Y_pert * h);
+            Vector6d F_pert = total_force_at_Y(Y_pert).data;
+
             Vector6d r_pert = dcay_pert.transpose() * (K * Y_pert.data + mu_offset.data) 
-                                - dcay_inv_neg_hYk.transpose() * mu_k.data - h * F.data;
+                                - dcay_inv_neg_hYk.transpose() * mu_k.data - h * F_pert;
 
             J.col(i) = (r_pert - r) / eps;
         }
@@ -296,6 +315,7 @@ NewtonResult FlowIntegrator::integrate_step_newton(const SE3Transform& g_k, cons
     return NewtonResult{ g_next, mu_next, Y, false, max_newton_iters, r_norm };
 }
 
+/*
 SimulationResult FlowIntegrator::simulate(const SE3Transform& g0, const Vector6D& mu0, const Matrix6d& K, const Vector6D& mu_offset, 
                                           double dt, int num_steps, double mass_body, double volume, double rho_fluid, 
                                           double ref_area, double C_d, bool include_drag, bool verbose) {
@@ -329,4 +349,4 @@ SimulationResult FlowIntegrator::simulate(const SE3Transform& g0, const Vector6D
 
     return result;
 
-}
+} */

@@ -139,6 +139,8 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
         MMatrix targetMat = data.inputValue(testScene::targetMatrix).asMatrix();
         Vector3d target_pos(targetMat[3][0], targetMat[3][1], targetMat[3][2]);
 
+        const double MAYA_TO_METERS = 0.01;
+
 
         // 1. INITIALIZATION (Frame 1 or earlier)
         if (!m_isInitialized || currentFrame <= 1.0) {
@@ -154,7 +156,9 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             m_cachedVertices.clear();
             m_cachedVertices.reserve(meshData.m_vertices.length());
             for (unsigned int i = 0; i < meshData.m_vertices.length(); ++i) {
-                m_cachedVertices.push_back(Vector3d(meshData.m_vertices[i].x, meshData.m_vertices[i].y, meshData.m_vertices[i].z));
+                m_cachedVertices.push_back(Vector3d(meshData.m_vertices[i].x * MAYA_TO_METERS, 
+                                                    meshData.m_vertices[i].y * MAYA_TO_METERS,
+                                                    meshData.m_vertices[i].z * MAYA_TO_METERS));
             }
 
             // Compute and CACHE the inertia matrix
@@ -163,7 +167,7 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             Matrix6d I_fluid = flowC.compute_added_mass_tensor(meshData, rho_fluid);
             m_cachedK = I_body + I_fluid;
 
-            m_cachedVolume = meshData.m_totalVolume;
+            m_cachedVolume = meshData.m_totalVolume * MAYA_TO_METERS * MAYA_TO_METERS * MAYA_TO_METERS;
             m_currentG = identity();
             vec6 init;
             init << 0.05, 0.01, 0.0,   // small angular momentum (wx, wy, wz)
@@ -188,9 +192,9 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             std::vector<Vector3d> vertices_k1;
             vertices_k1.reserve(meshData.numVertices());
             for (unsigned int i = 0; i < meshData.numVertices(); ++i) {
-                vertices_k1.emplace_back(meshData.m_vertices[i].x,
-                    meshData.m_vertices[i].y,
-                    meshData.m_vertices[i].z);
+                vertices_k1.emplace_back(meshData.m_vertices[i].x * MAYA_TO_METERS,
+                                         meshData.m_vertices[i].y * MAYA_TO_METERS,
+                                         meshData.m_vertices[i].z * MAYA_TO_METERS);
             }
 
             // Flow Integrator setup
@@ -211,28 +215,26 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
 
             // current velocity Y, which is K_inv * mu
             const Vector6D Y = Vector6D(K_t.inverse() * (m_currentMu.data - mu0.data));
-            const Vector6D F = integrator.compute_total_force(Y, mass_body, m_cachedVolume, rho_fluid, ref_area, C_d, include_drag);
+            Matrix3d R = m_currentG.data.block<3, 3>(0, 0);
+            double net_weight = mass_body - m_cachedVolume * rho_fluid;
+            Vector3d g_body = R.transpose() * Vector3d(0.0, -9.81 * net_weight, 0.0);
+            Vector6d F_grav_data;
+            F_grav_data << Vector3d::Zero(), g_body;
 
             Vector3d pos_error = target_pos - m_currentG.t();
             Vector3d f_guide_linear = (stiffness * pos_error) - (anim_damp * Y.vel());
 
             // Transform guide force into body frame
-            Matrix3d R = m_currentG.data.block<3, 3>(0, 0);
             Vector3d f_guide_body = R.transpose() * f_guide_linear;
-
             Vector6d F_guide_data;
             F_guide_data << Vector3d::Zero(), f_guide_body;
-            Vector6D F_guide(F_guide_data);
 
-            Vector6D F_total = F + F_guide;
+            // only y-independent forces for now
+            Vector6D F_external(F_grav_data + F_guide_data);
 
-            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, K_t, mu0, F_total, dt);
+            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, K_t, mu0, F_external, dt, meshData, rho_fluid, k_ang);
 
 
-            // Compute forces and integrate
-            // Note: We need the current velocity (Y), which is K_inv * mu
-            /*Vector6D Y = Vector6D(m_cachedK.inverse() * m_currentMu.data);
-            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, m_cachedK, Vector6D(), F, dt);*/
             /*
             MGlobal::displayInfo(MString("SIM STEP | Frame: ") + currentFrame +
                 " | Force Y: " + F.vel()[1] +
@@ -260,7 +262,7 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
         MMatrix outMat;
         for (int r = 0; r < 3; ++r) {
             for (int c = 0; c < 3; ++c) {
-                outMat[r][c] = m_currentG.data(r, c);
+                outMat[r][c] = m_currentG.data(c, r);
             }
         }
 

@@ -16,7 +16,7 @@ Vector6D FlowIntegrator::compute_lift_drag_force(
     Vector3d omega = Y.omega();  // angular velocity (body frame)
     Vector3d v = Y.vel();    // linear velocity  (body frame)
 
-    const double M = 0.01;
+    const double M = 1.0; // 0.01
 
     Vector3d torque = Vector3d::Zero();
     Vector3d force = Vector3d::Zero();
@@ -60,24 +60,23 @@ static Vector6D angular_drag(const Vector6D& velocity, double k_ang) {
 // flow integrator class
 
 float FlowIntegrator::compute_delta(std::vector<double> face_areas, std::vector<MVector> face_normals, const MeshData& mesh) {
-    double numer_sum = std::accumulate(face_areas.begin(), face_areas.end(), 0.0);
+    const double M = 1.0; //0.01
+
+    // Numerator must also be in m² — currently raw cm²
+    double numer_sum = 0.0;
+    for (double a : face_areas) numer_sum += a * M * M;  // ← add this scaling
+
     double denom_sum = 0.0;
-
     for (const Edge& e : mesh.m_edges) {
-        if (e.f1 == -1) {
-            // edge has only one face so we skip it
-            continue;
-        }
+        if (e.f1 == -1) continue;
         double alpha = mesh.getEdgeDihedralAngle(e);
-        denom_sum += alpha * e.length;
+        denom_sum += alpha * e.length * M;  // already correct
     }
 
-    if (std::abs(denom_sum) < 1e-8) {
+    if (std::abs(denom_sum) < 1e-8)
         return static_cast<float>(std::sqrt(numer_sum));
-    }
 
-    double delta = numer_sum / denom_sum;
-    return delta;
+    return numer_sum / denom_sum;  // m²/m = m ✓
 }
 
 Matrix6d FlowIntegrator::compute_body_inertia(const std::vector<Vector3d>& vertices, const std::vector<double>& mass_density) {
@@ -96,7 +95,7 @@ Matrix6d FlowIntegrator::compute_body_inertia(const std::vector<Vector3d>& verti
     Matrix3d I_vv = Matrix3d::Zero();
 
     for (size_t i = 0; i < vertices.size(); ++i) {
-		Vector3d r_i = vertices[i] - com;
+		Vector3d r_i = vertices[i];
         Matrix3d gammaX = skew(r_i);
         double rho_i  = mass_density[i];
         I_ww += gammaX.transpose() * gammaX * rho_i;
@@ -136,7 +135,7 @@ Matrix6d FlowIntegrator::compute_added_mass_tensor(const MeshData& mesh, double 
     // compute face areas
     std::vector<double> face_areas = mesh.m_faceAreas;
 
-    const double M = 0.01;
+    const double M = 1.0; // 0.01
 
     // compute face normals
     std::vector<MVector> face_normals;
@@ -147,7 +146,7 @@ Matrix6d FlowIntegrator::compute_added_mass_tensor(const MeshData& mesh, double 
     }
 
     // compute delta
-	double delta = compute_delta(face_areas, face_normals, mesh) * M;
+	double delta = compute_delta(face_areas, face_normals, mesh);
 
     // compute added mass tensor
     Matrix6d I = Matrix6d::Zero();
@@ -181,6 +180,8 @@ Vector6D FlowIntegrator::compute_fluid_momentum(const std::vector<Vector3d>& ver
     // compute face areas
     std::vector<double> face_areas = mesh.m_faceAreas;
 
+    const double M = 1.0; // 0.01
+
     // compute face normals
     std::vector<MVector> face_normals;
     int normals_num = mesh.m_faceNormals.length();
@@ -206,10 +207,10 @@ Vector6D FlowIntegrator::compute_fluid_momentum(const std::vector<Vector3d>& ver
 
         const Vector3d gamma_dot_face = ((vertices_k1[i0] - vertices_k[i0]) +
                                          (vertices_k1[i1] - vertices_k[i1]) +
-                                         (vertices_k1[i2] - vertices_k[i2])) / (3.0 * dt);
-        const Vector3d gamma_face = (vertices_k[i0] + vertices_k[i1] + vertices_k[i2]) / 3.0;
+                                         (vertices_k1[i2] - vertices_k[i2])) / (3.0 * dt) * M * M;
+        const Vector3d gamma_face = (vertices_k[i0] + vertices_k[i1] + vertices_k[i2]) / 3.0 * M * M;
 
-        const double A = face_areas[i];
+        const double A = face_areas[i] * M * M;
         const MVector& n_maya = mesh.m_faceNormals[i];
         const Vector3d n(n_maya.x, n_maya.y, n_maya.z);
 

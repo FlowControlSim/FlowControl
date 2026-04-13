@@ -184,7 +184,11 @@ double MeshData::getEdgeDihedralAngle(const Edge& e) const
     const MVector& n0 = m_faceNormals[e.f0];
     const MVector& n1 = m_faceNormals[e.f1];
 
+
     MVector edgeDir = m_vertices[e.v1] - m_vertices[e.v0];
+    if (!e.is_v0_v1_ccw_in_f0) {
+        edgeDir = -edgeDir; // Align edgeDir with f0's CCW winding
+    }
     edgeDir.normalize();
 
     double sinTheta = (n0 ^ n1) * edgeDir; // cross + dot
@@ -425,6 +429,8 @@ MStatus MeshData::buildEdges()
                 const MPoint& p0 = m_vertices[v0];
                 const MPoint& p1 = m_vertices[v1];
                 edge.length = (p1 - p0).length();
+
+                edge.is_v0_v1_ccw_in_f0 = (a == v0);
 
                 edgeMap[key] = edge;
             } else {

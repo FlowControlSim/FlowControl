@@ -75,7 +75,7 @@ MStatus testScene::initialize()
     nAttr.setKeyable(true);
     addAttribute(liftCoeff);
 
-    angularDrag = nAttr.create("angularDrag", "ad", MFnNumericData::kFloat, 0.02f);
+    angularDrag = nAttr.create("angularDrag", "ad", MFnNumericData::kFloat, 1.0f);
     nAttr.setStorable(true);
     nAttr.setConnectable(true);
     nAttr.setKeyable(true);
@@ -128,6 +128,8 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
         //MTime currentTime = data.inputValue(inTime).asTime();
         //double currentFrame = currentTime.value();
 
+        const double MAYA_TO_METERS = 1.0; // 0.01
+
         double mass_body = data.inputValue(testScene::mass, &returnStatus).asDouble();
         double C_d = data.inputValue(testScene::dragCoeff, &returnStatus).asDouble();
         double C_l = data.inputValue(testScene::liftCoeff, &returnStatus).asDouble();
@@ -137,9 +139,7 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
         double stiffness = data.inputValue(testScene::animStiffness).asDouble();
         double anim_damp = data.inputValue(testScene::animDamping).asDouble();
         MMatrix targetMat = data.inputValue(testScene::targetMatrix).asMatrix();
-        Vector3d target_pos(targetMat[3][0], targetMat[3][1], targetMat[3][2]);
-
-        const double MAYA_TO_METERS = 0.01;
+        Vector3d target_pos(targetMat[3][0] * MAYA_TO_METERS, targetMat[3][1] * MAYA_TO_METERS, targetMat[3][2] * MAYA_TO_METERS);
 
 
         // 1. INITIALIZATION (Frame 1 or earlier)
@@ -221,16 +221,21 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             Vector6d F_grav_data;
             F_grav_data << Vector3d::Zero(), g_body;
 
+            // pos_error is in world space
             Vector3d pos_error = target_pos - m_currentG.t();
-            Vector3d f_guide_linear = (stiffness * pos_error) - (anim_damp * Y.vel());
 
-            // Transform guide force into body frame
-            Vector3d f_guide_body = R.transpose() * f_guide_linear;
+			Vector3d v_world = R * Y.vel();
+
+			Vector3d f_guide_world = (stiffness * pos_error) - (anim_damp * v_world);
+
+            // Transform final force into body frame
+            Vector3d f_guide_body = R.transpose() * f_guide_world;
             Vector6d F_guide_data;
             F_guide_data << Vector3d::Zero(), f_guide_body;
 
             // only y-independent forces for now
             Vector6D F_external(F_grav_data + F_guide_data);
+
 
             NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, K_t, mu0, F_external, dt, meshData, rho_fluid, k_ang);
 
@@ -257,6 +262,7 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             m_isInitialized = false;
         }
 
+        const double M_INV = 1.0; // 100.0
         //// OUTPUT THE MATRIX
 
         MMatrix outMat;
@@ -266,9 +272,9 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             }
         }
 
-        outMat[3][0] = m_currentG.data(0, 3);
-        outMat[3][1] = m_currentG.data(1, 3);
-        outMat[3][2] = m_currentG.data(2, 3);
+        outMat[3][0] = m_currentG.data(0, 3) * M_INV;
+        outMat[3][1] = m_currentG.data(1, 3) * M_INV;
+        outMat[3][2] = m_currentG.data(2, 3) * M_INV;
         outMat[0][3] = 0.0;
         outMat[1][3] = 0.0;
         outMat[2][3] = 0.0;

@@ -30,6 +30,7 @@ struct Edge {
     int f0 = -1;         // first adjacent face
     int f1 = -1;         // second adjacent face
 	double length = 0.0; // edge length (m)
+    bool is_v0_v1_ccw_in_f0 = true;
 };
 
 class MeshData {

@@ -34,6 +34,9 @@ public:
     static MObject targetMatrix;
     static MObject animStiffness;
     static MObject animDamping;
+    static MObject windVelocity;
+    static MObject initLinearVel;
+    static MObject initAngularVel;
 
 private:
     double m_previousTime = 0.0; 

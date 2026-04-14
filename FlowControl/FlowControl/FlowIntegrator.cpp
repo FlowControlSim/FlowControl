@@ -11,7 +11,7 @@ Vector6D ExternalForceComputer::gravity_buoyancy(double mass_body, double volume
 }
 
 Vector6D FlowIntegrator::compute_lift_drag_force(
-    const Vector6D& Y, const MeshData& mesh, double rho_fluid)
+    const Vector6D& Y, const MeshData& mesh, double rho_fluid, Vector3d& wind_body)
 {
     Vector3d omega = Y.omega();  // angular velocity (body frame)
     Vector3d v = Y.vel();    // linear velocity  (body frame)
@@ -27,7 +27,7 @@ Vector6D FlowIntegrator::compute_lift_drag_force(
         Vector3d gamma_face(c.x * M , c.y * M, c.z * M);
 
         // Rigid body velocity at face center (body frame)
-        Vector3d u_face = omega.cross(gamma_face) + v;
+        Vector3d u_face = omega.cross(gamma_face) + v - wind_body;
         double u_norm = u_face.norm();
         if (u_norm < 1e-10) continue;
 
@@ -234,7 +234,7 @@ Vector6D FlowIntegrator::compute_total_force(const Vector6D& velocity, double ma
     Vector6D F = ExternalForceComputer::gravity_buoyancy(mass_body, volume, rho_fluid);
 
     if (include_drag) {
-        F = F + compute_lift_drag_force(velocity, mesh, rho_fluid);
+        //F = F + compute_lift_drag_force(velocity, mesh, rho_fluid);
         F = F + angular_drag(velocity, k_ang);
     }
 
@@ -243,7 +243,7 @@ Vector6D FlowIntegrator::compute_total_force(const Vector6D& velocity, double ma
 
 
 NewtonResult FlowIntegrator::integrate_step_newton(const SE3Transform& g_k, const Vector6D& mu_k, const Matrix6d& K,
-                                                   const Vector6D& mu_offset, const Vector6D& F, double dt, const MeshData& mesh, double rho_fluid, double k_ang) {
+                                                   const Vector6D& mu_offset, const Vector6D& F, double dt, const MeshData& mesh, double rho_fluid, double k_ang, Vector3d& wind_body) {
     const double h = dt;
     const Matrix6d K_inv = K.inverse();
 
@@ -258,7 +258,7 @@ NewtonResult FlowIntegrator::integrate_step_newton(const SE3Transform& g_k, cons
 
     // Lambda to compute the total force at given Y
     auto total_force_at_Y = [&](const Vector6D& Y_eval) -> Vector6D {
-        Vector6D F_ld = compute_lift_drag_force(Y_eval, mesh, rho_fluid);
+        Vector6D F_ld = compute_lift_drag_force(Y_eval, mesh, rho_fluid, wind_body);
         vec6 ang_drag_data;
         ang_drag_data.head<3>() = -k_ang * Y_eval.omega();
 		ang_drag_data.tail<3>() = Vector3d::Zero();

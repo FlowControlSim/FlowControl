@@ -17,6 +17,9 @@ MObject testScene::angularDrag;
 MObject testScene::targetMatrix;
 MObject testScene::animStiffness;
 MObject testScene::animDamping;
+MObject testScene::windVelocity;
+MObject testScene::initLinearVel;
+MObject testScene::initAngularVel;
 
 void* testScene::creator()
 {
@@ -98,6 +101,25 @@ MStatus testScene::initialize()
     nAttr.setKeyable(true);
     addAttribute(animDamping);
 
+    windVelocity = nAttr.create("windVelocity", "wv", MFnNumericData::k3Double);
+    nAttr.setDefault(0.0, 0.0, 0.0);
+    nAttr.setStorable(true);
+    nAttr.setConnectable(true);
+    nAttr.setKeyable(true);
+    addAttribute(windVelocity);
+
+    initLinearVel = nAttr.create("initialLinearVel", "ilv", MFnNumericData::k3Double);
+    nAttr.setDefault(0.0, 0.0, 0.0);
+    nAttr.setStorable(true);
+    nAttr.setKeyable(true);
+    addAttribute(initLinearVel);
+
+    initAngularVel = nAttr.create("initialAngularVel", "iav", MFnNumericData::k3Double);
+    nAttr.setDefault(0.05, 0.01, 0.0);
+    nAttr.setStorable(true);
+    nAttr.setKeyable(true);
+    addAttribute(initAngularVel);
+
     attributeAffects(testScene::liftCoeff, testScene::outTransform);
     attributeAffects(testScene::angularDrag, testScene::outTransform);
 	attributeAffects(testScene::inTime, testScene::outTransform);
@@ -108,6 +130,10 @@ MStatus testScene::initialize()
     attributeAffects(testScene::targetMatrix, testScene::outTransform);
     attributeAffects(testScene::animStiffness, testScene::outTransform);
     attributeAffects(testScene::animDamping, testScene::outTransform);
+    attributeAffects(testScene::windVelocity, testScene::outTransform);
+    attributeAffects(testScene::initLinearVel, testScene::outTransform);
+    attributeAffects(testScene::initAngularVel, testScene::outTransform);
+
 
 	return status;
 }
@@ -167,11 +193,16 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             Matrix6d I_fluid = flowC.compute_added_mass_tensor(meshData, rho_fluid);
             m_cachedK = I_body + I_fluid;
 
+            double3& iav = data.inputValue(testScene::initAngularVel).asDouble3();
+            double3& ilv = data.inputValue(testScene::initLinearVel).asDouble3();
+
             m_cachedVolume = meshData.m_totalVolume * MAYA_TO_METERS * MAYA_TO_METERS * MAYA_TO_METERS;
             m_currentG = identity();
             vec6 init;
-            init << 0.05, 0.01, 0.0,   // small angular momentum (wx, wy, wz)
-                0.0, 0.0, 0.0;   // zero linear momentum
+            init << iav[0], iav[1], iav[2],   // small angular momentum (wx, wy, wz) // 0.05, 0.01, 0.0, 
+                ilv[0] * MAYA_TO_METERS* mass_body,
+                ilv[1] * MAYA_TO_METERS* mass_body,
+                ilv[2] * MAYA_TO_METERS* mass_body;  // zero linear momentum
             m_currentMu = Vector6D(init);
 
             //MGlobal::displayInfo(MString("INIT FRAME 1. Mass: ") + mass_body + " Volume: " + m_cachedVolume);
@@ -223,9 +254,7 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
 
             // pos_error is in world space
             Vector3d pos_error = target_pos - m_currentG.t();
-
 			Vector3d v_world = R * Y.vel();
-
 			Vector3d f_guide_world = (stiffness * pos_error) - (anim_damp * v_world);
 
             // Transform final force into body frame
@@ -236,8 +265,17 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             // only y-independent forces for now
             Vector6D F_external(F_grav_data + F_guide_data);
 
+            // Read wind — authored in Maya world space cm/s
+            double3& windRaw = data.inputValue(testScene::windVelocity).asDouble3();
+            Vector3d wind_world(windRaw[0] * MAYA_TO_METERS,
+                                windRaw[1] * MAYA_TO_METERS,
+                                windRaw[2] * MAYA_TO_METERS);
 
-            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, K_t, mu0, F_external, dt, meshData, rho_fluid, k_ang);
+            // Rotate into body frame — lift/drag operates in body frame
+            Vector3d wind_body = R.transpose() * wind_world;
+
+
+            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, K_t, mu0, F_external, dt, meshData, rho_fluid, k_ang, wind_body);
 
 
             /*

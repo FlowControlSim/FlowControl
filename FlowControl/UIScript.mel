@@ -1,0 +1,425 @@
+// testScene_ui.mel
+// UI and node creation procedures for the testScene MPxNode.
+//
+// Installation
+// ------------
+// Source this file once, then install the shelf button and menu:
+//     source "testScene_ui.mel";
+//     testSceneCreateMenu();
+//     testSceneAddShelfButton();
+//
+// The shelf button and menu item call testSceneCreateUI() directly.
+
+// ---------------------------------------------------------------------------
+// Presets
+// ---------------------------------------------------------------------------
+
+global proc testSceneApplyPreset(string $preset)
+{
+    // Safety (avoid errors if UI not open)
+    if (!`control -exists testSceneFluidDensity`)
+        return;
+
+    if ($preset == "Air")
+    {
+        // Real-world-ish air values
+        floatSliderGrp -e -value 0.05 testSceneFluidDensity;
+        floatSliderGrp -e -value 8.0  testSceneDragCoeff;   // sphere-ish
+        floatSliderGrp -e -value 0.8   testSceneLiftCoeff;
+        floatSliderGrp -e -value 0.5   testSceneAngularDrag;
+    }
+    else if ($preset == "Water")
+    {
+        // Water is MUCH denser → stronger drag
+        floatSliderGrp -e -value 0.2 testSceneFluidDensity;
+        floatSliderGrp -e -value 10.0   testSceneDragCoeff;
+        floatSliderGrp -e -value 0.5    testSceneLiftCoeff;
+        floatSliderGrp -e -value 2.0    testSceneAngularDrag;
+    }
+    else // Reset
+    {
+        floatSliderGrp -e -value 0.1  testSceneFluidDensity;
+        floatSliderGrp -e -value 10.0 testSceneDragCoeff;
+        floatSliderGrp -e -value 0.8  testSceneLiftCoeff;
+        floatSliderGrp -e -value 1.0  testSceneAngularDrag;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Create button callback — reads all widgets and builds the node
+// ---------------------------------------------------------------------------
+
+global proc testSceneCreate()
+{
+    // --- read values -------------------------------------------------------
+    string $nodeName = `textFieldGrp -q -text testSceneNodeName`;
+    if ($nodeName == "")
+        $nodeName = "testScene1";
+
+    float $mass          = `floatSliderGrp -q -value testSceneMass`;
+    float $fluidDensity  = `floatSliderGrp -q -value testSceneFluidDensity`;
+    float $dragCoeff     = `floatSliderGrp -q -value testSceneDragCoeff`;
+    float $liftCoeff     = `floatSliderGrp -q -value testSceneLiftCoeff`;
+    float $angularDrag   = `floatSliderGrp -q -value testSceneAngularDrag`;
+    float $animStiffness = `floatSliderGrp -q -value testSceneAnimStiffness`;
+    float $animDamping   = `floatSliderGrp -q -value testSceneAnimDamping`;
+
+    float $windX = `floatFieldGrp -q -v1 testSceneWind`;
+    float $windY = `floatFieldGrp -q -v2 testSceneWind`;
+    float $windZ = `floatFieldGrp -q -v3 testSceneWind`;
+
+    float $linVelX = `floatFieldGrp -q -v1 testSceneInitLinVel`;
+    float $linVelY = `floatFieldGrp -q -v2 testSceneInitLinVel`;
+    float $linVelZ = `floatFieldGrp -q -v3 testSceneInitLinVel`;
+
+    float $angVelX = `floatFieldGrp -q -v1 testSceneInitAngVel`;
+    float $angVelY = `floatFieldGrp -q -v2 testSceneInitAngVel`;
+    float $angVelZ = `floatFieldGrp -q -v3 testSceneInitAngVel`;
+
+    // --- debug print -------------------------------------------------------
+    print ("[testScene] Name:          " + $nodeName    + "\n");
+    print ("[testScene] Mass:          " + $mass         + "\n");
+    print ("[testScene] Fluid Density: " + $fluidDensity + "\n");
+    print ("[testScene] Drag Coeff:    " + $dragCoeff    + "\n");
+    print ("[testScene] Lift Coeff:    " + $liftCoeff    + "\n");
+    print ("[testScene] Angular Drag:  " + $angularDrag  + "\n");
+    print ("[testScene] Anim Stiff:    " + $animStiffness + "\n");
+    print ("[testScene] Anim Damp:     " + $animDamping  + "\n");
+    print ("[testScene] Wind:          " + $windX + " " + $windY + " " + $windZ + "\n");
+    print ("[testScene] Init Lin Vel:  " + $linVelX + " " + $linVelY + " " + $linVelZ + "\n");
+    print ("[testScene] Init Ang Vel:  " + $angVelX + " " + $angVelY + " " + $angVelZ + "\n");
+
+    // --- create node -------------------------------------------------------
+    string $node = `createNode testScene -name $nodeName`;
+
+    // --- set attributes ----------------------------------------------------
+    setAttr ($node + ".mass")          $mass;
+    setAttr ($node + ".fluidDensity")  $fluidDensity;
+    setAttr ($node + ".dragCoeff")     $dragCoeff;
+    setAttr ($node + ".liftCoeff")     $liftCoeff;
+    setAttr ($node + ".angularDrag")   $angularDrag;
+    setAttr ($node + ".animStiffness") $animStiffness;
+    setAttr ($node + ".animDamping")   $animDamping;
+    setAttr ($node + ".windVelocity")      -type double3 $windX $windY $windZ;
+    setAttr ($node + ".initialLinearVel")  -type double3 $linVelX $linVelY $linVelZ;
+    setAttr ($node + ".initialAngularVel") -type double3 $angVelX $angVelY $angVelZ;
+
+    print ("[testScene] Created node '" + $node + "'.\n");
+
+    // --- close window ------------------------------------------------------
+    if (`window -exists testSceneWin`)
+        deleteUI testSceneWin;
+}
+
+// ---------------------------------------------------------------------------
+// UI window
+// ---------------------------------------------------------------------------
+
+global proc testSceneCreateUI()
+{
+    if (`window -exists testSceneWin`)
+        deleteUI testSceneWin;
+
+    window
+        -title "Create FlowControl Node"
+        -widthHeight 400 620
+        -sizeable true
+        testSceneWin;
+
+    scrollLayout
+        -horizontalScrollBarThickness 0
+        -verticalScrollBarThickness   8;
+
+    columnLayout -adjustableColumn true -rowSpacing 4;
+
+    // ── Node name ──────────────────────────────────────────────────────────
+    separator -height 8 -style "none";
+    textFieldGrp
+        -label "Name"
+        -text "testScene1"
+        -columnWidth2 60 220
+        -columnAlign2 "right" "left"
+        testSceneNodeName;
+
+    // ── Preset buttons ─────────────────────────────────────────────────────
+    separator -height 10 -style "in";
+    text -label "Environment Presets" -align "left" -font "boldLabelFont";
+
+    rowLayout
+        -numberOfColumns 3
+        -columnWidth3 120 120 120
+        -columnAttach3 "both" "both" "both"
+        -columnOffset3 2 2 2;
+
+        button -label "Air"
+            -command "testSceneApplyPreset(\"Air\")";
+
+        button -label "Water"
+            -command "testSceneApplyPreset(\"Water\")";
+
+        button -label "Reset"
+            -command "testSceneApplyPreset(\"Reset\")";
+
+    setParent ..;
+
+    // ── Physics ────────────────────────────────────────────────────────────
+    separator -height 10 -style "in";
+    frameLayout
+        -label "Physics"
+        -collapsable true
+        -collapse false
+        -marginWidth 10
+        -marginHeight 10;
+        columnLayout -adjustableColumn true -rowSpacing 6;
+        floatSliderGrp
+            -label "Mass"
+            -field true
+            -minValue 0.001 -maxValue 20.0
+            -fieldMinValue 0.0 -fieldMaxValue 1000000.0
+            -value 1.0
+            -precision 4
+            -columnWidth3 110 70 160
+            -columnAlign3 "right" "left" "left"
+            testSceneMass;
+        floatSliderGrp
+            -label "Fluid Density"
+            -field true
+            -minValue 0.0 -maxValue 5.0
+            -fieldMinValue 0.0 -fieldMaxValue 1000000.0
+            -value 0.1
+            -precision 4
+            -columnWidth3 110 70 160
+            -columnAlign3 "right" "left" "left"
+            testSceneFluidDensity;
+        floatSliderGrp
+            -label "Drag Coeff"
+            -field true
+            -minValue 0.0 -maxValue 5.0
+            -fieldMinValue 0.0 -fieldMaxValue 1000000.0
+            -value 10.0
+            -precision 4
+            -columnWidth3 110 70 160
+            -columnAlign3 "right" "left" "left"
+            testSceneDragCoeff;
+        floatSliderGrp
+            -label "Lift Coeff"
+            -field true
+            -minValue 0.0 -maxValue 5.0
+            -fieldMinValue 0.0 -fieldMaxValue 1000000.0
+            -value 0.8
+            -precision 4
+            -columnWidth3 110 70 160
+            -columnAlign3 "right" "left" "left"
+            testSceneLiftCoeff;
+        floatSliderGrp
+            -label "Angular Drag"
+            -field true
+            -minValue 0.0 -maxValue 5.0
+            -fieldMinValue 0.0 -fieldMaxValue 1000000.0
+            -value 1.0
+            -precision 4
+            -columnWidth3 110 70 160
+            -columnAlign3 "right" "left" "left"
+            testSceneAngularDrag;
+        setParent ..;
+    setParent ..;
+
+    // ── Animation Spring ───────────────────────────────────────────────────
+    separator -height 6 -style "none";
+    frameLayout
+        -label "Animation Spring"
+        -collapsable true
+        -collapse false
+        -marginWidth 10
+        -marginHeight 10;
+        columnLayout -adjustableColumn true -rowSpacing 6;
+        floatSliderGrp
+            -label "Stiffness"
+            -field true
+            -minValue 0.0 -maxValue 1.0
+            -fieldMinValue 0.0 -fieldMaxValue 1000000.0
+            -value 10.0
+            -precision 4
+            -columnWidth3 110 70 160
+            -columnAlign3 "right" "left" "left"
+            testSceneAnimStiffness;
+        floatSliderGrp
+            -label "Damping"
+            -field true
+            -minValue 0.0 -maxValue 1.0
+            -fieldMinValue 0.0 -fieldMaxValue 1000000.0
+            -value 5.0
+            -precision 4
+            -columnWidth3 110 70 160
+            -columnAlign3 "right" "left" "left"
+            testSceneAnimDamping;
+        setParent ..;
+    setParent ..;
+
+    // ── Wind ───────────────────────────────────────────────────────────────
+    separator -height 6 -style "none";
+    frameLayout
+        -label "Wind"
+        -collapsable true
+        -collapse true
+        -marginWidth 10
+        -marginHeight 10;
+        columnLayout -adjustableColumn true -rowSpacing 6;
+        text -label "Wind Velocity  (X, Y, Z)" -align "left";
+        floatFieldGrp
+            -numberOfFields 3
+            -value1 0.0 -value2 0.0 -value3 0.0
+            -columnWidth4 80 80 80 80
+            testSceneWind;
+        setParent ..;
+    setParent ..;
+
+    // ── Initial Conditions ─────────────────────────────────────────────────
+    separator -height 6 -style "none";
+    frameLayout
+        -label "Initial Conditions"
+        -collapsable true
+        -collapse true
+        -marginWidth 10
+        -marginHeight 10;
+        columnLayout -adjustableColumn true -rowSpacing 6;
+        text -label "Linear Velocity  (X, Y, Z)" -align "left";
+        floatFieldGrp
+            -numberOfFields 3
+            -value1 0.0 -value2 0.0 -value3 0.0
+            -columnWidth4 80 80 80 80
+            testSceneInitLinVel;
+        separator -height 6 -style "none";
+        text -label "Angular Velocity  (X, Y, Z)" -align "left";
+        floatFieldGrp
+            -numberOfFields 3
+            -value1 0.05 -value2 0.01 -value3 0.0
+            -columnWidth4 80 80 80 80
+            testSceneInitAngVel;
+        setParent ..;
+    setParent ..;
+
+    // ── Confirm / Cancel ───────────────────────────────────────────────────
+    separator -height 12 -style "in";
+    rowLayout
+        -numberOfColumns 2
+        -columnWidth2 190 190
+        -columnAttach2 "both" "both"
+        -columnOffset2 4 4;
+        button
+            -label "Create Node"
+            -height 36
+            -backgroundColor 0.25 0.50 0.25
+            -command "testSceneCreate()";
+        button
+            -label "Cancel"
+            -height 36
+            -command "deleteUI testSceneWin";
+    setParent ..;
+
+    separator -height 8 -style "none";
+
+    showWindow testSceneWin;
+}
+
+global proc testSceneBakeSimulation()
+{
+    python(
+"import maya.cmds as cmds\n\
+\n\
+original = cmds.ls(selection=True)\n\
+\n\
+if not original:\n\
+    cmds.warning('Please select a simulated mesh first.')\n\
+else:\n\
+    target = original[0]\n\
+\n\
+    bake_copy = cmds.duplicate(target, name=f'{target}_BAKED')\n\
+    copy_node = bake_copy[0]\n\
+\n\
+    for i in range(1, 141):\n\
+        cmds.dgdirty(allPlugs=True)\n\
+        cmds.currentTime(i)\n\
+\n\
+        pos = cmds.xform(target, query=True, worldSpace=True, translation=True)\n\
+        rot = cmds.xform(target, query=True, worldSpace=True, rotation=True)\n\
+        \n\
+        cmds.xform(copy_node, worldSpace=True, translation=pos)\n\
+        cmds.xform(copy_node, worldSpace=True, rotation=rot)\n\
+        \n\
+        cmds.setKeyframe(copy_node)\n\
+        print(f'Recorded frame {i}')\n\
+\n\
+    cmds.setAttr(f'{target}.visibility', 0)\n\
+    cmds.select(copy_node, replace=True)\n\
+"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Menu
+// ---------------------------------------------------------------------------
+
+global proc testSceneCreateMenu()
+{
+    global string $gMainWindow;
+    if (!`window -exists $gMainWindow`)
+        return;
+    if (`menu -exists testSceneMenu`)
+        deleteUI testSceneMenu;
+
+    menu
+        -label "FlowControl"
+        -parent $gMainWindow
+        -tearOff true
+        testSceneMenu;
+    menuItem
+        -label "Create FlowControl Node..."
+        -command "testSceneCreateUI()";
+    menuItem -divider true;
+    menuItem
+        -label "Reload UI Script"
+        -command "source \"../../UIScript.mel\"; print \"[testScene] UI reloaded.\\n\";";
+    menuItem -divider true;
+    menuItem
+        -label "Bake Animation Keyframes"
+        -command "testSceneBakeSimulation()";
+}
+
+// ---------------------------------------------------------------------------
+// Shelf button
+// ---------------------------------------------------------------------------
+
+global proc testSceneAddShelfButton()
+{
+    global string $gShelfTopLevel;
+    string $activeShelf = `tabLayout -q -selectTab $gShelfTopLevel`;
+
+    // avoid duplicates
+    string $children[] = `shelfLayout -q -childArray $activeShelf`;
+    string $btn;
+    for ($btn in $children)
+    {
+        if (`objectTypeUI $btn` == "shelfButton")
+        {
+            if (`shelfButton -q -label $btn` == "FlowControl")
+            {
+                print "[testScene] Shelf button already exists.\n";
+                return;
+            }
+        }
+    }
+
+    shelfButton
+        -parent             $activeShelf
+        -label              "FlowControl"
+        -annotation         "Create a testScene simulation node"
+        -image1             "render_useBackground.png"
+        -imageOverlayLabel  "tSc"
+        -overlayLabelColor  1 1 1
+        -overlayLabelBackColor 0 0 0 0.4
+        -command            "testSceneCreateUI()"
+        -sourceType         "mel";
+
+    print ("[testScene] Shelf button added to shelf '" + $activeShelf + "'.\n");
+}

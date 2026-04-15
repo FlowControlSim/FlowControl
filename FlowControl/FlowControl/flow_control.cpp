@@ -22,6 +22,13 @@ EXPORT MStatus initializePlugin(MObject obj)
 {
 	MStatus status;
 	MFnPlugin plugin( obj, "CIS660", "1.0", "Any");
+
+	// run MEL script
+	MString melPath = plugin.loadPath() + "/../../UIScript.mel";
+	char buffer[2048];
+	sprintf_s(buffer, 2048, "source \"%s\"; testSceneCreateMenu(); testSceneAddShelfButton();", melPath.asChar());
+	MGlobal::executeCommand(buffer, true);
+
 	status = plugin.registerCommand("helloMaya", helloMaya::creator );
 	if (!status)
 		status.perror( "registerCommand failed" );

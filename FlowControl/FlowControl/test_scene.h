@@ -31,6 +31,12 @@ public:
     static MObject inTime;
     static MObject liftCoeff;
     static MObject angularDrag;
+    static MObject targetMatrix;
+    static MObject animStiffness;
+    static MObject animDamping;
+    static MObject windVelocity;
+    static MObject initLinearVel;
+    static MObject initAngularVel;
 
 private:
     double m_previousTime = 0.0; 
@@ -38,7 +44,7 @@ private:
     Vector6D m_currentMu;
     Matrix6d m_cachedK;
     double m_cachedVolume = 0.0;
-    double m_cachedDelta = 0.0;
+    std::vector<Vector3d> m_cachedVertices;
     bool m_isInitialized = false;
 };
 

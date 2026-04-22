@@ -95,7 +95,7 @@ Matrix6d FlowIntegrator::compute_body_inertia(const std::vector<Vector3d>& verti
     Matrix3d I_vv = Matrix3d::Zero();
 
     for (size_t i = 0; i < vertices.size(); ++i) {
-		Vector3d r_i = vertices[i];
+        Vector3d r_i = vertices[i] - com;
         Matrix3d gammaX = skew(r_i);
         double rho_i  = mass_density[i];
         I_ww += gammaX.transpose() * gammaX * rho_i;

@@ -114,7 +114,7 @@ MStatus testScene::initialize()
     addAttribute(initLinearVel);
 
     initAngularVel = nAttr.create("initialAngularVel", "iav", MFnNumericData::k3Double);
-    nAttr.setDefault(0.05, 0.01, 0.0);
+    nAttr.setDefault(0.001, 0.00, 0.0);
     nAttr.setStorable(true);
     nAttr.setKeyable(true);
     addAttribute(initAngularVel);
@@ -175,7 +175,7 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
 
             // Set mass before computing properties so centroid/inertia have weights
             // (Assuming you have a mass attribute, or hardcode for now)
-            meshData.setMassDensity(mass_body, MassDensityType::UNIFORM, nullptr);
+            meshData.setMassDensity(mass_body, MassDensityType::VOLUME_WEIGHTED, nullptr);
             meshData.computeProperties();
 
             m_cachedVertices.clear();
@@ -199,12 +199,13 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             m_currentG = identity();
             vec6 init;
             init << iav[0], iav[1], iav[2],   // small angular momentum (wx, wy, wz) // 0.05, 0.01, 0.0, 
-                ilv[0] * MAYA_TO_METERS* mass_body,
-                ilv[1] * MAYA_TO_METERS* mass_body,
-                ilv[2] * MAYA_TO_METERS* mass_body;  // zero linear momentum
+                ilv[0] * MAYA_TO_METERS,
+                ilv[1] * MAYA_TO_METERS,
+                ilv[2] * MAYA_TO_METERS;  // zero linear momentum
             m_currentMu = Vector6D(init);
 
             //MGlobal::displayInfo(MString("INIT FRAME 1. Mass: ") + mass_body + " Volume: " + m_cachedVolume);
+            MGlobal::displayInfo(MString("CACHED VOLUME (m^3): ") + m_cachedVolume);
 
             m_previousTime = currentFrame;
             m_isInitialized = true;

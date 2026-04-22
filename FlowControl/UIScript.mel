@@ -111,6 +111,13 @@ global proc testSceneCreate()
         deleteUI testSceneWin;
 }
 
+global proc freezeTransforms() 
+{
+    FreezeTransformations;
+    makeIdentity -apply true -t 1 -r 1 -s 1 -n 0 -pn 1;
+}
+
+
 // ---------------------------------------------------------------------------
 // UI window
 // ---------------------------------------------------------------------------
@@ -286,6 +293,7 @@ global proc testSceneCreateUI()
         text -label "Linear Velocity  (X, Y, Z)" -align "left";
         floatFieldGrp
             -numberOfFields 3
+	    -precision 4
             -value1 0.0 -value2 0.0 -value3 0.0
             -columnWidth4 80 80 80 80
             testSceneInitLinVel;
@@ -293,7 +301,8 @@ global proc testSceneCreateUI()
         text -label "Angular Velocity  (X, Y, Z)" -align "left";
         floatFieldGrp
             -numberOfFields 3
-            -value1 0.05 -value2 0.01 -value3 0.0
+	    -precision 4
+            -value1 0.001 -value2 0.01 -value3 0.0
             -columnWidth4 80 80 80 80
             testSceneInitAngVel;
         setParent ..;
@@ -386,6 +395,7 @@ global proc testSceneCreateMenu()
         -command "testSceneBakeSimulation()";
 }
 
+
 // ---------------------------------------------------------------------------
 // Shelf button
 // ---------------------------------------------------------------------------
@@ -422,4 +432,47 @@ global proc testSceneAddShelfButton()
         -sourceType         "mel";
 
     print ("[testScene] Shelf button added to shelf '" + $activeShelf + "'.\n");
+}
+// ---------------------------------------------------------------------------
+// Teardown
+// ---------------------------------------------------------------------------
+
+global proc testSceneRemoveUI()
+{
+    // 1. Close the window if it's currently open
+    if (`window -exists testSceneWin`) {
+        deleteUI testSceneWin;
+    }
+
+    // 2. Delete the main menu
+    if (`menu -exists testSceneMenu`) {
+        deleteUI testSceneMenu;
+    }
+
+    // 3. Find and delete the shelf button across all shelves
+    global string $gShelfTopLevel;
+    
+    // Ensure the main shelf UI exists
+    if (`tabLayout -exists $gShelfTopLevel`) {
+        // Get all individual shelf tabs
+        string $shelves[] = `tabLayout -q -childArray $gShelfTopLevel`;
+        
+        for ($shelf in $shelves) {
+            // Get all items on this specific shelf
+            string $buttons[] = `shelfLayout -q -childArray $shelf`;
+            
+            for ($btn in $buttons) {
+                // Ensure the UI element is actually a shelf button
+                if (`objectTypeUI $btn` == "shelfButton") {
+                    // Check if the label matches the one we created
+                    if (`shelfButton -q -label $btn` == "FlowControl") {
+                        deleteUI $btn;
+                        print ("[testScene] Removed FlowControl shelf button from '" + $shelf + "'.\n");
+                    }
+                }
+            }
+        }
+    }
+    
+    print ("[testScene] UI successfully removed.\n");
 }

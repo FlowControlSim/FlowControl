@@ -51,5 +51,8 @@ EXPORT MStatus uninitializePlugin(MObject obj)
 	status = plugin.deregisterNode(testScene::id);
 	if(!status)
 		status.perror("deregister testScene node failed");
+
+	MGlobal::executeCommand("catchQuiet(testSceneRemoveUI())");
+
 	return status;
 }

@@ -24,7 +24,7 @@ MStatus MeshData::extractMeshData(const MObject& meshObj) {
     status = m_meshFn.setObject(meshObj);
     CHECK_MSTATUS_AND_RETURN_IT(status);
     // Extract vertices in world space
-    status = m_meshFn.getPoints(m_vertices, MSpace::kWorld);
+    status = m_meshFn.getPoints(m_vertices, MSpace::kObject);
     if (status != MS::kSuccess) {
         MGlobal::displayError("MeshData: Failed to get vertex positions");
         return status;
@@ -103,6 +103,8 @@ MStatus MeshData::setMassDensity(double totalMass,
     unsigned int N = m_vertices.length();
     m_massDensity.resize(N);
     m_totalMass = totalMass;
+
+    const double MAYA_TO_METERS = 100;
 
     if (type == UNIFORM) {
         // Equal mass per vertex

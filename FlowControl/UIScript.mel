@@ -41,6 +41,14 @@ global proc testScenePanelRaise()
     workspaceControl -e -raise $kTestSceneWC;
 }
 
+// Hides the panel without destroying it or touching the shelf button.
+global proc testSceneClosePanel()
+{
+    global string $kTestSceneWC;
+    if (testScenePanelExists())
+        workspaceControl -e -visible false $kTestSceneWC;
+}
+
 
 // ---------------------------------------------------------------------------
 // Presets
@@ -57,17 +65,18 @@ global proc testSceneApplyPreset(string $preset)
     }
     else if ($preset == "Water")
     {
-        floatSliderGrp -e -value 998.0  testSceneFluidDensity;
+        floatSliderGrp -e -value 998.0 testSceneFluidDensity;
     }
     else // Reset
     {
-        floatSliderGrp -e -value 1.0  testSceneFluidDensity;
+        floatSliderGrp -e -value 1.0 testSceneFluidDensity;
     }
 
     print ("[testScene] Applied preset: " + $preset + "\n");
 }
 
 
+// ---------------------------------------------------------------------------
 // Helper: keep the Step 3 instruction label in sync with the node name field
 // ---------------------------------------------------------------------------
 
@@ -82,9 +91,6 @@ global proc testSceneUpdateConnectLabel()
 
     text -e -label ("Select the mesh to connect to:  " + $nodeName) testSceneConnectLabel;
 }
-
-
-// ---------------------------------------------------------------------------
 
 
 // ---------------------------------------------------------------------------
@@ -125,6 +131,8 @@ global proc testSceneCreate()
     print ("[testScene] Init Ang Vel:  " + $angVelX + " " + $angVelY + " " + $angVelZ + "\n");
 
     // --- create node -------------------------------------------------------
+    // Capture the name Maya *actually* assigns — it may differ from $nodeName
+    // if a node with that name already exists (Maya auto-renames).
     string $node = `createNode testScene -name $nodeName`;
 
     if ($node == "")
@@ -142,7 +150,6 @@ global proc testSceneCreate()
         testSceneUpdateConnectLabel();
     }
 
-
     // --- set attributes ----------------------------------------------------
     setAttr ($node + ".mass")              $mass;
     setAttr ($node + ".fluidDensity")      $fluidDensity;
@@ -151,8 +158,6 @@ global proc testSceneCreate()
     setAttr ($node + ".windVelocity")      -type double3 $windX  $windY  $windZ;
     setAttr ($node + ".initialLinearVel")  -type double3 $linVelX $linVelY $linVelZ;
     setAttr ($node + ".initialAngularVel") -type double3 $angVelX $angVelY $angVelZ;
-
-    print ("[testScene] Created node '" + $node + "'.\n");
 
     // --- visual feedback in panel ------------------------------------------
     if (`text -exists testSceneStatusLine`)
@@ -206,6 +211,10 @@ global proc testSceneUpdateParameters()
     setAttr ($nodeName + ".windVelocity")      -type double3 $windX  $windY  $windZ;
     setAttr ($nodeName + ".initialLinearVel")  -type double3 $linVelX $linVelY $linVelZ;
     setAttr ($nodeName + ".initialAngularVel") -type double3 $angVelX $angVelY $angVelZ;
+
+    // Mark the node dirty so Maya knows its cached output is stale and
+    // must re-evaluate from new parameter values on next playback/bake.
+    dgdirty $nodeName;
 
     print ("[testScene] Updated node '" + $nodeName + "'.\n");
 
@@ -263,44 +272,44 @@ global proc connectAttributes()
     print ("[testScene] Connecting: transform='" + $meshTransform + "'  shape='" + $meshShape + "'  node='" + $nodeName + "'\n");
 
     // --- make connections --------------------------------------------------
-    // 1. time1.outTime → node.inTime
-    string $timePlug  = "time1.outTime";
-    string $inTime    = ($nodeName + ".inTime");
+    // 1. time1.outTime -> node.inTime
+    string $timePlug = "time1.outTime";
+    string $inTime   = ($nodeName + ".inTime");
     if (!`isConnected $timePlug $inTime`)
         connectAttr $timePlug $inTime;
     else
-        print ("[testScene] Already connected: " + $timePlug + " → " + $inTime + "\n");
+        print ("[testScene] Already connected: " + $timePlug + " -> " + $inTime + "\n");
 
-    // 2. meshShape.outMesh → node.inMesh
+    // 2. meshShape.outMesh -> node.inMesh
     string $outMesh = ($meshShape + ".outMesh");
     string $inMesh  = ($nodeName  + ".inMesh");
     if (!`isConnected $outMesh $inMesh`)
         connectAttr $outMesh $inMesh;
     else
-        print ("[testScene] Already connected: " + $outMesh + " → " + $inMesh + "\n");
+        print ("[testScene] Already connected: " + $outMesh + " -> " + $inMesh + "\n");
 
-    // 3. node.outTransform → meshTransform.offsetParentMatrix
-    string $outXform   = ($nodeName      + ".outTransform");
-    string $offsetMtx  = ($meshTransform + ".offsetParentMatrix");
+    // 3. node.outTransform -> meshTransform.offsetParentMatrix
+    string $outXform  = ($nodeName      + ".outTransform");
+    string $offsetMtx = ($meshTransform + ".offsetParentMatrix");
     if (!`isConnected $outXform $offsetMtx`)
         connectAttr $outXform $offsetMtx;
     else
-        print ("[testScene] Already connected: " + $outXform + " → " + $offsetMtx + "\n");
+        print ("[testScene] Already connected: " + $outXform + " -> " + $offsetMtx + "\n");
 
-    // 4. animTarget.worldMatrix[0] → node.targetMatrix
+    // 4. animTarget.worldMatrix[0] -> node.targetMatrix
     string $targetMtx = "animTarget.worldMatrix[0]";
     string $inTarget  = ($nodeName + ".targetMatrix");
     if (!`objExists "animTarget"`)
-        warning "[testScene] 'animTarget' does not exist in the scene — skipping targetMatrix connection.\n";
+        warning "[testScene] 'animTarget' does not exist in the scene - skipping targetMatrix connection.\n";
     else if (!`isConnected $targetMtx $inTarget`)
         connectAttr $targetMtx $inTarget;
     else
-        print ("[testScene] Already connected: " + $targetMtx + " → " + $inTarget + "\n");
+        print ("[testScene] Already connected: " + $targetMtx + " -> " + $inTarget + "\n");
 
     print ("[testScene] Attribute connections complete.\n");
 
     if (`text -exists testSceneStatusLine`)
-        text -e -label ("  Connected: " + $meshTransform + " → " + $nodeName) testSceneStatusLine;
+        text -e -label ("  Connected: " + $meshTransform + " -> " + $nodeName) testSceneStatusLine;
 }
 
 
@@ -310,6 +319,16 @@ global proc connectAttributes()
 
 global proc testSceneBakeSimulation()
 {
+    // --- read frame range from UI ------------------------------------------
+    int $startFrame = `intFieldGrp -q -v1 testSceneBakeRange`;
+    int $endFrame   = `intFieldGrp -q -v2 testSceneBakeRange`;
+
+    if ($startFrame >= $endFrame)
+    {
+        error "[testScene] Bake start frame must be less than end frame.\n";
+        return;
+    }
+
     if (`text -exists testSceneStatusLine`)
         text -e -label "  Baking simulation..." testSceneStatusLine;
 
@@ -326,7 +345,7 @@ else:\n\
     bake_copy = cmds.duplicate(target, name=f'{target}_BAKED')\n\
     copy_node = bake_copy[0]\n\
 \n\
-    for i in range(1, 141):\n\
+    for i in range(" + $startFrame + ", " + ($endFrame + 1) + "):\n\
         cmds.dgdirty(allPlugs=True)\n\
         cmds.currentTime(i)\n\
 \n\
@@ -380,22 +399,20 @@ global proc testSceneBuildPanelUI()
             $kTestSceneUI;
 
         // ===================================================================
-        // STEP 1 — Freeze Transforms
+        // STEP 1 - Freeze Transforms
         // ===================================================================
         frameLayout
             -label       "Step 1:  Freeze Transforms"
             -collapsable  true
             -collapse     false
             -marginWidth  8
-            -marginHeight 8
-            -borderStyle  "etchedIn";
+            -marginHeight 8;
 
             columnLayout -adjustableColumn true -rowSpacing 6;
 
-                // Advisory note
                 text
-                    -label   "NOTE: Only freeze transforms if the mesh is NOT shape-changing"
-                    -align   "left";                    
+                    -label "NOTE: Only freeze transforms if the mesh is NOT shape-changing"
+                    -align "left";
 
                 separator -height 6 -style "none";
 
@@ -412,31 +429,30 @@ global proc testSceneBuildPanelUI()
         separator -height 2 -style "none";
 
         // ===================================================================
-        // STEP 2 — Create FlowControl Node
+        // STEP 2 - Create FlowControl Node
         // ===================================================================
         frameLayout
             -label       "Step 2:  Create FlowControl Node"
             -collapsable  true
             -collapse     false
             -marginWidth  8
-            -marginHeight 8
-            -borderStyle  "etchedIn";
+            -marginHeight 8;
 
             columnLayout -adjustableColumn true -rowSpacing 6;
 
-                // ── Node name ───────────────────────────────────────────────
+                // -- Node name -----------------------------------------------
                 textFieldGrp
-                    -label        "Node Name"
-                    -text         "FlowControlNode1"
-                    -columnWidth2  80 200
-                    -columnAlign2 "right" "left"
-                    -annotation   "Name for the new FlowControl node"
+                    -label         "Node Name"
+                    -text          "FlowControlNode1"
+                    -columnWidth2   80 200
+                    -columnAlign2  "right" "left"
+                    -annotation    "Name for the new FlowControl node"
                     -changeCommand "testSceneUpdateConnectLabel()"
                     testSceneNodeName;
 
                 separator -height 4 -style "none";
 
-                // ── Environment presets ─────────────────────────────────────
+                // -- Environment presets -------------------------------------
                 text -label "  Environment Presets" -align "left" -font "boldLabelFont";
 
                 rowLayout
@@ -459,7 +475,7 @@ global proc testSceneBuildPanelUI()
 
                 separator -height 6 -style "in";
 
-                // ── Physics parameters ──────────────────────────────────────
+                // -- Physics parameters --------------------------------------
                 text -label "  Physics" -align "left" -font "boldLabelFont";
 
                 floatSliderGrp
@@ -488,7 +504,7 @@ global proc testSceneBuildPanelUI()
 
                 separator -height 6 -style "in";
 
-                // ── Animation Spring ────────────────────────────────────────
+                // -- Animation Spring ----------------------------------------
                 text -label "  Animation Spring" -align "left" -font "boldLabelFont";
 
                 floatSliderGrp
@@ -517,14 +533,13 @@ global proc testSceneBuildPanelUI()
 
                 separator -height 6 -style "in";
 
-                // ── Wind (collapsed by default) ─────────────────────────────
+                // -- Wind (collapsed by default) -----------------------------
                 frameLayout
                     -label       "Wind"
                     -collapsable  true
                     -collapse     true
                     -marginWidth  6
-                    -marginHeight 6
-                    -borderStyle  "etchedIn";
+                    -marginHeight 6;
 
                     columnLayout -adjustableColumn true -rowSpacing 6;
 
@@ -539,14 +554,13 @@ global proc testSceneBuildPanelUI()
                     setParent ..;
                 setParent ..;   // Wind frameLayout
 
-                // ── Initial Conditions (collapsed by default) ───────────────
+                // -- Initial Conditions (collapsed by default) ---------------
                 frameLayout
                     -label       "Initial Conditions"
                     -collapsable  true
                     -collapse     true
                     -marginWidth  6
-                    -marginHeight 6
-                    -borderStyle  "etchedIn";
+                    -marginHeight 6;
 
                     columnLayout -adjustableColumn true -rowSpacing 6;
 
@@ -559,6 +573,7 @@ global proc testSceneBuildPanelUI()
                             testSceneInitLinVel;
 
                         separator -height 4 -style "none";
+
                         text -label "Angular Velocity  (X, Y, Z)" -align "left";
                         floatFieldGrp
                             -numberOfFields 3
@@ -572,7 +587,7 @@ global proc testSceneBuildPanelUI()
 
                 separator -height 8 -style "none";
 
-                // ── Create button ───────────────────────────────────────────
+                // -- Create button -------------------------------------------
                 button
                     -label           "Create FlowControl Node"
                     -height           36
@@ -580,14 +595,13 @@ global proc testSceneBuildPanelUI()
                     -annotation       "Create a new testScene node with the current settings"
                     -command          "testSceneCreate()";
 
+                separator -height 4 -style "none";
+
                 // -- Update button -------------------------------------------
-                // Pushes the current UI values to the already-existing node.
-                // Use this after tweaking parameters to update the node live,
-                // the same way the Attribute Editor would.
                 button
                     -label           "Update Parameters"
                     -height           30
-                    -backgroundColor  0.35 0.35 0.18
+                    -backgroundColor  0.114 0.329 0.114
                     -annotation       "Apply the current parameter values to the existing node (does not recreate it)"
                     -command          "testSceneUpdateParameters()";
 
@@ -597,21 +611,20 @@ global proc testSceneBuildPanelUI()
         separator -height 2 -style "none";
 
         // ===================================================================
-        // STEP 3 — Connect Attributes
+        // STEP 3 - Connect Attributes
         // ===================================================================
         frameLayout
             -label       "Step 3:  Connect Attributes"
             -collapsable  true
             -collapse     false
             -marginWidth  8
-            -marginHeight 8
-            -borderStyle  "etchedIn";
+            -marginHeight 8;
 
             columnLayout -adjustableColumn true -rowSpacing 6;
 
                 text
-                    -label   "Select the mesh, then connect attributes."
-                    -align   "left"
+                    -label "Select the mesh to connect to:  FlowControlNode1"
+                    -align "left"
                     testSceneConnectLabel;
 
                 separator -height 4 -style "none";
@@ -620,7 +633,7 @@ global proc testSceneBuildPanelUI()
                     -label           "Connect Attributes"
                     -height           32
                     -backgroundColor  0.20 0.36 0.50
-                    -annotation       "Connect the selected mesh to the FlowControl node"
+                    -annotation       "Select the mesh transform, then click to connect it to the FlowControl node"
                     -command          "connectAttributes()";
 
             setParent ..;
@@ -629,32 +642,46 @@ global proc testSceneBuildPanelUI()
         separator -height 2 -style "none";
 
         // ===================================================================
-        // STEP 4 — Bake Animation Keyframes
+        // STEP 4 - Bake Animation Keyframes
         // ===================================================================
         frameLayout
             -label       "Step 4:  Bake Animation Keyframes"
             -collapsable  true
             -collapse     false
             -marginWidth  8
-            -marginHeight 8
-            -borderStyle  "etchedIn";
+            -marginHeight 8;
 
             columnLayout -adjustableColumn true -rowSpacing 6;
 
                 text
-                    -label   "Duplicate selected mesh and bake simulation to keyframes."
-                    -align   "left";
+                    -label "Duplicate selected mesh and bake simulation to keyframes."
+                    -align "left";
                 text
-                    -label   "NOTE: Select the simulated mesh before baking."
-                    -align   "left";
+                    -label "NOTE: Select the simulated mesh before baking."
+                    -align "left";
 
                 separator -height 4 -style "none";
+
+                // -- Frame range --------------------------------------------
+                text -label "  Bake Range" -align "left" -font "boldLabelFont";
+
+                intFieldGrp
+                    -numberOfFields 2
+                    -label          "Start / End Frame"
+                    -value1         1
+                    -value2         140
+                    -columnWidth3   120 70 70
+                    -columnAlign3  "right" "left" "left"
+                    -annotation     "First and last frame to bake (inclusive)"
+                    testSceneBakeRange;
+
+                separator -height 6 -style "none";
 
                 button
                     -label           "Bake Animation Keyframes"
                     -height           32
                     -backgroundColor  0.28 0.28 0.45
-                    -annotation       "Duplicate selected mesh and bake simulation to keyframes"
+                    -annotation       "Duplicate selected mesh and bake simulation to keyframes over the specified range"
                     -command          "testSceneBakeSimulation()";
 
             setParent ..;
@@ -665,8 +692,8 @@ global proc testSceneBuildPanelUI()
         // ===================================================================
         separator -height 8 -style "in";
         text
-            -label   "Ready to flow!"
-            -align   "left"
+            -label "Ready to flow!"
+            -align "left"
             testSceneStatusLine;
         separator -height 4 -style "none";
 
@@ -690,9 +717,8 @@ global proc testSceneShowPanel()
         return;
     }
 
-    // Create the workspaceControl.
     // -tabToControl takes: <controlName> <tabIndex>
-    //   tabIndex -1 = append as a new tab (standard convention).
+    //   tabIndex -1 = append as a new tab.
     workspaceControl
         -label           "FlowControl Editor"
         -uiScript        "testSceneBuildPanelUI()"
@@ -709,7 +735,7 @@ global proc testSceneShowPanel()
 
 
 // ---------------------------------------------------------------------------
-// Legacy entry point — kept so old shelf buttons / scripts still work.
+// Legacy entry point - kept so old shelf buttons / scripts still work.
 // ---------------------------------------------------------------------------
 
 global proc testSceneCreateUI()
@@ -743,30 +769,8 @@ global proc testSceneCreateMenu()
     menuItem -divider true;
 
     menuItem
-        -label   "Create FlowControl Node"
-        -command "testSceneShowPanel(); testSceneCreate();";
-
-    menuItem
-        -label   "Bake Animation Keyframes"
-        -command "testSceneBakeSimulation()";
-
-    menuItem -divider true;
-
-    menuItem
-        -label   "Freeze Transforms"
-        -command "freezeTransforms()";
-
-    menuItem -divider true;
-
-    menuItem
-        -label   "Reload UI Script"
-        -command "source \"../../UIScript.mel\"; print \"[testScene] UI reloaded.\\n\";";
-
-    menuItem -divider true;
-
-    menuItem
         -label   "Close FlowControl Editor"
-        -command "testSceneRemoveUI()";
+        -command "testSceneClosePanel()";
 }
 
 
@@ -810,14 +814,14 @@ global proc testSceneAddShelfButton()
 
 
 // ---------------------------------------------------------------------------
-// Teardown
+// Teardown — full removal of UI, menu, and shelf button
 // ---------------------------------------------------------------------------
 
 global proc testSceneRemoveUI()
 {
     global string $kTestSceneWC;
 
-    // 1. Delete the workspaceControl (closes and destroys the panel)
+    // 1. Delete the workspaceControl entirely
     if (testScenePanelExists())
         deleteUI $kTestSceneWC;
 

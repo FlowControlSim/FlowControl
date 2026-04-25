@@ -1,5 +1,5 @@
 // testScene_ui.mel
-// UI and node creation procedures for the testScene MPxNode.
+// Dockable attribute editor panel for the FlowControl (testScene) MPxNode.
 //
 // Installation
 // ------------
@@ -8,7 +8,39 @@
 //     testSceneCreateMenu();
 //     testSceneAddShelfButton();
 //
-// The shelf button and menu item call testSceneCreateUI() directly.
+// The shelf button and menu call testSceneShowPanel() to open/focus
+// the dockable FlowControl editor.
+//
+// Compatibility: Maya 2017+ (uses workspaceControl). Tested on Maya 2026.
+
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+global string $kTestSceneWC = "testSceneWorkspaceControl";
+global string $kTestSceneUI = "testSceneMainLayout";
+
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// Returns 1 if the workspaceControl exists (docked or floating).
+global proc int testScenePanelExists()
+{
+    global string $kTestSceneWC;
+    return `workspaceControl -exists $kTestSceneWC`;
+}
+
+// Brings an existing panel to the front / makes it visible.
+global proc testScenePanelRaise()
+{
+    global string $kTestSceneWC;
+    workspaceControl -e -visible true $kTestSceneWC;
+    workspaceControl -e -raise $kTestSceneWC;
+}
+
 
 // ---------------------------------------------------------------------------
 // Presets
@@ -16,51 +48,57 @@
 
 global proc testSceneApplyPreset(string $preset)
 {
-    // Safety (avoid errors if UI not open)
-    if (!`control -exists testSceneFluidDensity`)
+    if (!`floatSliderGrp -exists testSceneFluidDensity`)
         return;
 
     if ($preset == "Air")
     {
-        // Real-world-ish air values
-        floatSliderGrp -e -value 0.05 testSceneFluidDensity;
-        floatSliderGrp -e -value 8.0  testSceneDragCoeff;   // sphere-ish
-        floatSliderGrp -e -value 0.8   testSceneLiftCoeff;
-        floatSliderGrp -e -value 0.5   testSceneAngularDrag;
+        floatSliderGrp -e -value 1.225 testSceneFluidDensity;
     }
     else if ($preset == "Water")
     {
-        // Water is MUCH denser → stronger drag
-        floatSliderGrp -e -value 0.2 testSceneFluidDensity;
-        floatSliderGrp -e -value 10.0   testSceneDragCoeff;
-        floatSliderGrp -e -value 0.5    testSceneLiftCoeff;
-        floatSliderGrp -e -value 2.0    testSceneAngularDrag;
+        floatSliderGrp -e -value 998.0  testSceneFluidDensity;
     }
     else // Reset
     {
-        floatSliderGrp -e -value 0.1  testSceneFluidDensity;
-        floatSliderGrp -e -value 10.0 testSceneDragCoeff;
-        floatSliderGrp -e -value 0.8  testSceneLiftCoeff;
-        floatSliderGrp -e -value 1.0  testSceneAngularDrag;
+        floatSliderGrp -e -value 1.0  testSceneFluidDensity;
     }
+
+    print ("[testScene] Applied preset: " + $preset + "\n");
 }
 
+
+// Helper: keep the Step 3 instruction label in sync with the node name field
 // ---------------------------------------------------------------------------
-// Create button callback — reads all widgets and builds the node
+
+global proc testSceneUpdateConnectLabel()
+{
+    if (!`text -exists testSceneConnectLabel`)
+        return;
+
+    string $nodeName = `textFieldGrp -q -text testSceneNodeName`;
+    if ($nodeName == "")
+        $nodeName = "testScene1";
+
+    text -e -label ("Select the mesh to connect to:  " + $nodeName) testSceneConnectLabel;
+}
+
+
+// ---------------------------------------------------------------------------
+
+
+// ---------------------------------------------------------------------------
+// Action: Create Node
 // ---------------------------------------------------------------------------
 
 global proc testSceneCreate()
 {
     // --- read values -------------------------------------------------------
     string $nodeName = `textFieldGrp -q -text testSceneNodeName`;
-    if ($nodeName == "")
-        $nodeName = "testScene1";
+    if ($nodeName == "") $nodeName = "testScene1";
 
     float $mass          = `floatSliderGrp -q -value testSceneMass`;
     float $fluidDensity  = `floatSliderGrp -q -value testSceneFluidDensity`;
-    float $dragCoeff     = `floatSliderGrp -q -value testSceneDragCoeff`;
-    float $liftCoeff     = `floatSliderGrp -q -value testSceneLiftCoeff`;
-    float $angularDrag   = `floatSliderGrp -q -value testSceneAngularDrag`;
     float $animStiffness = `floatSliderGrp -q -value testSceneAnimStiffness`;
     float $animDamping   = `floatSliderGrp -q -value testSceneAnimDamping`;
 
@@ -77,14 +115,11 @@ global proc testSceneCreate()
     float $angVelZ = `floatFieldGrp -q -v3 testSceneInitAngVel`;
 
     // --- debug print -------------------------------------------------------
-    print ("[testScene] Name:          " + $nodeName    + "\n");
-    print ("[testScene] Mass:          " + $mass         + "\n");
-    print ("[testScene] Fluid Density: " + $fluidDensity + "\n");
-    print ("[testScene] Drag Coeff:    " + $dragCoeff    + "\n");
-    print ("[testScene] Lift Coeff:    " + $liftCoeff    + "\n");
-    print ("[testScene] Angular Drag:  " + $angularDrag  + "\n");
+    print ("[testScene] Name:          " + $nodeName     + "\n");
+    print ("[testScene] Mass:          " + $mass          + "\n");
+    print ("[testScene] Fluid Density: " + $fluidDensity  + "\n");
     print ("[testScene] Anim Stiff:    " + $animStiffness + "\n");
-    print ("[testScene] Anim Damp:     " + $animDamping  + "\n");
+    print ("[testScene] Anim Damp:     " + $animDamping   + "\n");
     print ("[testScene] Wind:          " + $windX + " " + $windY + " " + $windZ + "\n");
     print ("[testScene] Init Lin Vel:  " + $linVelX + " " + $linVelY + " " + $linVelZ + "\n");
     print ("[testScene] Init Ang Vel:  " + $angVelX + " " + $angVelY + " " + $angVelZ + "\n");
@@ -92,26 +127,98 @@ global proc testSceneCreate()
     // --- create node -------------------------------------------------------
     string $node = `createNode testScene -name $nodeName`;
 
+    if ($node == "")
+    {
+        error "[testScene] createNode failed — node was not created.\n";
+        return;
+    }
+
+    print ("[testScene] Created node '" + $node + "' (requested '" + $nodeName + "').\n");
+
+    // Sync the name field and Step 3 label to whatever Maya actually called it.
+    if (`textFieldGrp -exists testSceneNodeName`)
+    {
+        textFieldGrp -e -text $node testSceneNodeName;
+        testSceneUpdateConnectLabel();
+    }
+
+
     // --- set attributes ----------------------------------------------------
-    setAttr ($node + ".mass")          $mass;
-    setAttr ($node + ".fluidDensity")  $fluidDensity;
-    setAttr ($node + ".dragCoeff")     $dragCoeff;
-    setAttr ($node + ".liftCoeff")     $liftCoeff;
-    setAttr ($node + ".angularDrag")   $angularDrag;
-    setAttr ($node + ".animStiffness") $animStiffness;
-    setAttr ($node + ".animDamping")   $animDamping;
-    setAttr ($node + ".windVelocity")      -type double3 $windX $windY $windZ;
+    setAttr ($node + ".mass")              $mass;
+    setAttr ($node + ".fluidDensity")      $fluidDensity;
+    setAttr ($node + ".animStiffness")     $animStiffness;
+    setAttr ($node + ".animDamping")       $animDamping;
+    setAttr ($node + ".windVelocity")      -type double3 $windX  $windY  $windZ;
     setAttr ($node + ".initialLinearVel")  -type double3 $linVelX $linVelY $linVelZ;
     setAttr ($node + ".initialAngularVel") -type double3 $angVelX $angVelY $angVelZ;
 
     print ("[testScene] Created node '" + $node + "'.\n");
 
-    // --- close window ------------------------------------------------------
-    if (`window -exists testSceneWin`)
-        deleteUI testSceneWin;
+    // --- visual feedback in panel ------------------------------------------
+    if (`text -exists testSceneStatusLine`)
+        text -e -label ("  Node created: " + $node) testSceneStatusLine;
 }
 
-global proc freezeTransforms() 
+
+// ---------------------------------------------------------------------------
+// Action: Update Parameters on existing node
+// ---------------------------------------------------------------------------
+
+global proc testSceneUpdateParameters()
+{
+    string $nodeName = `textFieldGrp -q -text testSceneNodeName`;
+    if ($nodeName == "") $nodeName = "testScene1";
+
+    if (!`objExists $nodeName`)
+    {
+        error ("[testScene] Node '" + $nodeName + "' does not exist. Create it first (Step 2).\n");
+        return;
+    }
+
+    // Verify it is actually a testScene node
+    if (`nodeType $nodeName` != "testScene")
+    {
+        error ("[testScene] '" + $nodeName + "' is not a testScene node.\n");
+        return;
+    }
+
+    float $mass          = `floatSliderGrp -q -value testSceneMass`;
+    float $fluidDensity  = `floatSliderGrp -q -value testSceneFluidDensity`;
+    float $animStiffness = `floatSliderGrp -q -value testSceneAnimStiffness`;
+    float $animDamping   = `floatSliderGrp -q -value testSceneAnimDamping`;
+
+    float $windX = `floatFieldGrp -q -v1 testSceneWind`;
+    float $windY = `floatFieldGrp -q -v2 testSceneWind`;
+    float $windZ = `floatFieldGrp -q -v3 testSceneWind`;
+
+    float $linVelX = `floatFieldGrp -q -v1 testSceneInitLinVel`;
+    float $linVelY = `floatFieldGrp -q -v2 testSceneInitLinVel`;
+    float $linVelZ = `floatFieldGrp -q -v3 testSceneInitLinVel`;
+
+    float $angVelX = `floatFieldGrp -q -v1 testSceneInitAngVel`;
+    float $angVelY = `floatFieldGrp -q -v2 testSceneInitAngVel`;
+    float $angVelZ = `floatFieldGrp -q -v3 testSceneInitAngVel`;
+
+    setAttr ($nodeName + ".mass")              $mass;
+    setAttr ($nodeName + ".fluidDensity")      $fluidDensity;
+    setAttr ($nodeName + ".animStiffness")     $animStiffness;
+    setAttr ($nodeName + ".animDamping")       $animDamping;
+    setAttr ($nodeName + ".windVelocity")      -type double3 $windX  $windY  $windZ;
+    setAttr ($nodeName + ".initialLinearVel")  -type double3 $linVelX $linVelY $linVelZ;
+    setAttr ($nodeName + ".initialAngularVel") -type double3 $angVelX $angVelY $angVelZ;
+
+    print ("[testScene] Updated node '" + $nodeName + "'.\n");
+
+    if (`text -exists testSceneStatusLine`)
+        text -e -label ("  Updated: " + $nodeName) testSceneStatusLine;
+}
+
+
+// ---------------------------------------------------------------------------
+// Action: Freeze Transforms
+// ---------------------------------------------------------------------------
+
+global proc freezeTransforms()
 {
     FreezeTransformations;
     makeIdentity -apply true -t 1 -r 1 -s 1 -n 0 -pn 1;
@@ -119,220 +226,93 @@ global proc freezeTransforms()
 
 
 // ---------------------------------------------------------------------------
-// UI window
+// Action: Connect Attributes
 // ---------------------------------------------------------------------------
 
-global proc testSceneCreateUI()
+global proc connectAttributes()
 {
-    if (`window -exists testSceneWin`)
-        deleteUI testSceneWin;
+    // --- resolve the FlowControl node name ---------------------------------
+    string $nodeName = `textFieldGrp -q -text testSceneNodeName`;
+    if ($nodeName == "") $nodeName = "testScene1";
 
-    window
-        -title "Create FlowControl Node"
-        -widthHeight 400 620
-        -sizeable true
-        testSceneWin;
+    if (!`objExists $nodeName`)
+    {
+        error ("[testScene] Node '" + $nodeName + "' does not exist. Create it first (Step 2).\n");
+        return;
+    }
 
-    scrollLayout
-        -horizontalScrollBarThickness 0
-        -verticalScrollBarThickness   8;
+    // --- resolve the selected mesh transform + shape -----------------------
+    string $sel[] = `ls -selection -type transform`;
+    if (size($sel) == 0)
+    {
+        error "[testScene] Nothing selected. Select the mesh transform first.\n";
+        return;
+    }
 
-    columnLayout -adjustableColumn true -rowSpacing 4;
+    string $meshTransform = $sel[0];
 
-    // ── Node name ──────────────────────────────────────────────────────────
-    separator -height 8 -style "none";
-    textFieldGrp
-        -label "Name"
-        -text "testScene1"
-        -columnWidth2 60 220
-        -columnAlign2 "right" "left"
-        testSceneNodeName;
+    // Get the first mesh shape under the transform
+    string $shapes[] = `listRelatives -shapes -type mesh -noIntermediate $meshTransform`;
+    if (size($shapes) == 0)
+    {
+        error ("[testScene] '" + $meshTransform + "' has no mesh shape. Select a polygon mesh.\n");
+        return;
+    }
+    string $meshShape = $shapes[0];
 
-    // ── Preset buttons ─────────────────────────────────────────────────────
-    separator -height 10 -style "in";
-    text -label "Environment Presets" -align "left" -font "boldLabelFont";
+    print ("[testScene] Connecting: transform='" + $meshTransform + "'  shape='" + $meshShape + "'  node='" + $nodeName + "'\n");
 
-    rowLayout
-        -numberOfColumns 3
-        -columnWidth3 120 120 120
-        -columnAttach3 "both" "both" "both"
-        -columnOffset3 2 2 2;
+    // --- make connections --------------------------------------------------
+    // 1. time1.outTime → node.inTime
+    string $timePlug  = "time1.outTime";
+    string $inTime    = ($nodeName + ".inTime");
+    if (!`isConnected $timePlug $inTime`)
+        connectAttr $timePlug $inTime;
+    else
+        print ("[testScene] Already connected: " + $timePlug + " → " + $inTime + "\n");
 
-        button -label "Air"
-            -command "testSceneApplyPreset(\"Air\")";
+    // 2. meshShape.outMesh → node.inMesh
+    string $outMesh = ($meshShape + ".outMesh");
+    string $inMesh  = ($nodeName  + ".inMesh");
+    if (!`isConnected $outMesh $inMesh`)
+        connectAttr $outMesh $inMesh;
+    else
+        print ("[testScene] Already connected: " + $outMesh + " → " + $inMesh + "\n");
 
-        button -label "Water"
-            -command "testSceneApplyPreset(\"Water\")";
+    // 3. node.outTransform → meshTransform.offsetParentMatrix
+    string $outXform   = ($nodeName      + ".outTransform");
+    string $offsetMtx  = ($meshTransform + ".offsetParentMatrix");
+    if (!`isConnected $outXform $offsetMtx`)
+        connectAttr $outXform $offsetMtx;
+    else
+        print ("[testScene] Already connected: " + $outXform + " → " + $offsetMtx + "\n");
 
-        button -label "Reset"
-            -command "testSceneApplyPreset(\"Reset\")";
+    // 4. animTarget.worldMatrix[0] → node.targetMatrix
+    string $targetMtx = "animTarget.worldMatrix[0]";
+    string $inTarget  = ($nodeName + ".targetMatrix");
+    if (!`objExists "animTarget"`)
+        warning "[testScene] 'animTarget' does not exist in the scene — skipping targetMatrix connection.\n";
+    else if (!`isConnected $targetMtx $inTarget`)
+        connectAttr $targetMtx $inTarget;
+    else
+        print ("[testScene] Already connected: " + $targetMtx + " → " + $inTarget + "\n");
 
-    setParent ..;
+    print ("[testScene] Attribute connections complete.\n");
 
-    // ── Physics ────────────────────────────────────────────────────────────
-    separator -height 10 -style "in";
-    frameLayout
-        -label "Physics"
-        -collapsable true
-        -collapse false
-        -marginWidth 10
-        -marginHeight 10;
-        columnLayout -adjustableColumn true -rowSpacing 6;
-        floatSliderGrp
-            -label "Mass"
-            -field true
-            -minValue 0.001 -maxValue 20.0
-            -fieldMinValue 0.0 -fieldMaxValue 1000000.0
-            -value 1.0
-            -precision 4
-            -columnWidth3 110 70 160
-            -columnAlign3 "right" "left" "left"
-            testSceneMass;
-        floatSliderGrp
-            -label "Fluid Density"
-            -field true
-            -minValue 0.0 -maxValue 5.0
-            -fieldMinValue 0.0 -fieldMaxValue 1000000.0
-            -value 0.1
-            -precision 4
-            -columnWidth3 110 70 160
-            -columnAlign3 "right" "left" "left"
-            testSceneFluidDensity;
-        floatSliderGrp
-            -label "Drag Coeff"
-            -field true
-            -minValue 0.0 -maxValue 5.0
-            -fieldMinValue 0.0 -fieldMaxValue 1000000.0
-            -value 10.0
-            -precision 4
-            -columnWidth3 110 70 160
-            -columnAlign3 "right" "left" "left"
-            testSceneDragCoeff;
-        floatSliderGrp
-            -label "Lift Coeff"
-            -field true
-            -minValue 0.0 -maxValue 5.0
-            -fieldMinValue 0.0 -fieldMaxValue 1000000.0
-            -value 0.8
-            -precision 4
-            -columnWidth3 110 70 160
-            -columnAlign3 "right" "left" "left"
-            testSceneLiftCoeff;
-        floatSliderGrp
-            -label "Angular Drag"
-            -field true
-            -minValue 0.0 -maxValue 5.0
-            -fieldMinValue 0.0 -fieldMaxValue 1000000.0
-            -value 1.0
-            -precision 4
-            -columnWidth3 110 70 160
-            -columnAlign3 "right" "left" "left"
-            testSceneAngularDrag;
-        setParent ..;
-    setParent ..;
-
-    // ── Animation Spring ───────────────────────────────────────────────────
-    separator -height 6 -style "none";
-    frameLayout
-        -label "Animation Spring"
-        -collapsable true
-        -collapse false
-        -marginWidth 10
-        -marginHeight 10;
-        columnLayout -adjustableColumn true -rowSpacing 6;
-        floatSliderGrp
-            -label "Stiffness"
-            -field true
-            -minValue 0.0 -maxValue 1.0
-            -fieldMinValue 0.0 -fieldMaxValue 1000000.0
-            -value 10.0
-            -precision 4
-            -columnWidth3 110 70 160
-            -columnAlign3 "right" "left" "left"
-            testSceneAnimStiffness;
-        floatSliderGrp
-            -label "Damping"
-            -field true
-            -minValue 0.0 -maxValue 1.0
-            -fieldMinValue 0.0 -fieldMaxValue 1000000.0
-            -value 5.0
-            -precision 4
-            -columnWidth3 110 70 160
-            -columnAlign3 "right" "left" "left"
-            testSceneAnimDamping;
-        setParent ..;
-    setParent ..;
-
-    // ── Wind ───────────────────────────────────────────────────────────────
-    separator -height 6 -style "none";
-    frameLayout
-        -label "Wind"
-        -collapsable true
-        -collapse true
-        -marginWidth 10
-        -marginHeight 10;
-        columnLayout -adjustableColumn true -rowSpacing 6;
-        text -label "Wind Velocity  (X, Y, Z)" -align "left";
-        floatFieldGrp
-            -numberOfFields 3
-            -value1 0.0 -value2 0.0 -value3 0.0
-            -columnWidth4 80 80 80 80
-            testSceneWind;
-        setParent ..;
-    setParent ..;
-
-    // ── Initial Conditions ─────────────────────────────────────────────────
-    separator -height 6 -style "none";
-    frameLayout
-        -label "Initial Conditions"
-        -collapsable true
-        -collapse true
-        -marginWidth 10
-        -marginHeight 10;
-        columnLayout -adjustableColumn true -rowSpacing 6;
-        text -label "Linear Velocity  (X, Y, Z)" -align "left";
-        floatFieldGrp
-            -numberOfFields 3
-	    -precision 4
-            -value1 0.0 -value2 0.0 -value3 0.0
-            -columnWidth4 80 80 80 80
-            testSceneInitLinVel;
-        separator -height 6 -style "none";
-        text -label "Angular Velocity  (X, Y, Z)" -align "left";
-        floatFieldGrp
-            -numberOfFields 3
-	    -precision 4
-            -value1 0.001 -value2 0.01 -value3 0.0
-            -columnWidth4 80 80 80 80
-            testSceneInitAngVel;
-        setParent ..;
-    setParent ..;
-
-    // ── Confirm / Cancel ───────────────────────────────────────────────────
-    separator -height 12 -style "in";
-    rowLayout
-        -numberOfColumns 2
-        -columnWidth2 190 190
-        -columnAttach2 "both" "both"
-        -columnOffset2 4 4;
-        button
-            -label "Create Node"
-            -height 36
-            -backgroundColor 0.25 0.50 0.25
-            -command "testSceneCreate()";
-        button
-            -label "Cancel"
-            -height 36
-            -command "deleteUI testSceneWin";
-    setParent ..;
-
-    separator -height 8 -style "none";
-
-    showWindow testSceneWin;
+    if (`text -exists testSceneStatusLine`)
+        text -e -label ("  Connected: " + $meshTransform + " → " + $nodeName) testSceneStatusLine;
 }
+
+
+// ---------------------------------------------------------------------------
+// Action: Bake Simulation
+// ---------------------------------------------------------------------------
 
 global proc testSceneBakeSimulation()
 {
+    if (`text -exists testSceneStatusLine`)
+        text -e -label "  Baking simulation..." testSceneStatusLine;
+
     python(
 "import maya.cmds as cmds\n\
 \n\
@@ -352,18 +332,391 @@ else:\n\
 \n\
         pos = cmds.xform(target, query=True, worldSpace=True, translation=True)\n\
         rot = cmds.xform(target, query=True, worldSpace=True, rotation=True)\n\
-        \n\
+\n\
         cmds.xform(copy_node, worldSpace=True, translation=pos)\n\
         cmds.xform(copy_node, worldSpace=True, rotation=rot)\n\
-        \n\
+\n\
         cmds.setKeyframe(copy_node)\n\
         print(f'Recorded frame {i}')\n\
 \n\
     cmds.setAttr(f'{target}.visibility', 0)\n\
     cmds.select(copy_node, replace=True)\n\
+    print('[testScene] Bake complete.')\n\
 "
     );
+
+    if (`text -exists testSceneStatusLine`)
+        text -e -label "  Bake complete." testSceneStatusLine;
 }
+
+
+// ---------------------------------------------------------------------------
+// Panel UI content builder
+//
+// Called as the -uiScript for the workspaceControl. Maya re-runs this
+// every time the panel needs to rebuild (e.g. after a workspace restore),
+// so it must be idempotent. The columnLayout -exists guard handles that.
+// ---------------------------------------------------------------------------
+
+global proc testSceneBuildPanelUI()
+{
+    global string $kTestSceneUI;
+
+    // Guard: bail out if the layout was already built.
+    if (`columnLayout -exists $kTestSceneUI`)
+        return;
+
+    // -----------------------------------------------------------------------
+    // Root: scrollable so the panel works at any height
+    // -----------------------------------------------------------------------
+    scrollLayout
+        -horizontalScrollBarThickness 0
+        -verticalScrollBarThickness   8
+        -childResizable               true;
+
+        columnLayout
+            -adjustableColumn true
+            -rowSpacing       0
+            $kTestSceneUI;
+
+        // ===================================================================
+        // STEP 1 — Freeze Transforms
+        // ===================================================================
+        frameLayout
+            -label       "Step 1:  Freeze Transforms"
+            -collapsable  true
+            -collapse     false
+            -marginWidth  8
+            -marginHeight 8
+            -borderStyle  "etchedIn";
+
+            columnLayout -adjustableColumn true -rowSpacing 6;
+
+                // Advisory note
+                text
+                    -label   "NOTE: Only freeze transforms if the mesh is NOT shape-changing"
+                    -align   "left";                    
+
+                separator -height 6 -style "none";
+
+                button
+                    -label           "Freeze Transforms"
+                    -height           32
+                    -backgroundColor  0.071 0.502 0.443
+                    -annotation       "Run FreezeTransformations + makeIdentity on the selected object"
+                    -command          "freezeTransforms()";
+
+            setParent ..;   // columnLayout
+        setParent ..;       // frameLayout
+
+        separator -height 2 -style "none";
+
+        // ===================================================================
+        // STEP 2 — Create FlowControl Node
+        // ===================================================================
+        frameLayout
+            -label       "Step 2:  Create FlowControl Node"
+            -collapsable  true
+            -collapse     false
+            -marginWidth  8
+            -marginHeight 8
+            -borderStyle  "etchedIn";
+
+            columnLayout -adjustableColumn true -rowSpacing 6;
+
+                // ── Node name ───────────────────────────────────────────────
+                textFieldGrp
+                    -label        "Node Name"
+                    -text         "FlowControlNode1"
+                    -columnWidth2  80 200
+                    -columnAlign2 "right" "left"
+                    -annotation   "Name for the new FlowControl node"
+                    -changeCommand "testSceneUpdateConnectLabel()"
+                    testSceneNodeName;
+
+                separator -height 4 -style "none";
+
+                // ── Environment presets ─────────────────────────────────────
+                text -label "  Environment Presets" -align "left" -font "boldLabelFont";
+
+                rowLayout
+                    -numberOfColumns 3
+                    -columnWidth3    110 110 110
+                    -columnAttach3  "both" "both" "both"
+                    -columnOffset3   2 2 2;
+
+                    button -label "Air"
+                        -annotation "Low-density air environment"
+                        -command    "testSceneApplyPreset(\"Air\")";
+                    button -label "Water"
+                        -annotation "High-density water environment"
+                        -command    "testSceneApplyPreset(\"Water\")";
+                    button -label "Reset"
+                        -annotation "Reset to default values"
+                        -command    "testSceneApplyPreset(\"Reset\")";
+
+                setParent ..;   // rowLayout
+
+                separator -height 6 -style "in";
+
+                // ── Physics parameters ──────────────────────────────────────
+                text -label "  Physics" -align "left" -font "boldLabelFont";
+
+                floatSliderGrp
+                    -label    "Mass (kg)"
+                    -field    true
+                    -minValue  0.001 -maxValue 20.0
+                    -fieldMinValue 0.0 -fieldMaxValue 1000000.0
+                    -value     1.0
+                    -precision 4
+                    -columnWidth3  120 70 140
+                    -columnAlign3 "right" "left" "left"
+                    -annotation   "Object mass in kg"
+                    testSceneMass;
+
+                floatSliderGrp
+                    -label    "Fluid Density (kg/m^3)"
+                    -field    true
+                    -minValue  0.0 -maxValue 5.0
+                    -fieldMinValue 0.0 -fieldMaxValue 1000000.0
+                    -value     0.1
+                    -precision 4
+                    -columnWidth3  120 70 140
+                    -columnAlign3 "right" "left" "left"
+                    -annotation   "Density of the surrounding fluid"
+                    testSceneFluidDensity;
+
+                separator -height 6 -style "in";
+
+                // ── Animation Spring ────────────────────────────────────────
+                text -label "  Animation Spring" -align "left" -font "boldLabelFont";
+
+                floatSliderGrp
+                    -label    "Stiffness"
+                    -field    true
+                    -minValue  0.0 -maxValue 1.0
+                    -fieldMinValue 0.0 -fieldMaxValue 1000000.0
+                    -value     0.0
+                    -precision 4
+                    -columnWidth3  120 70 140
+                    -columnAlign3 "right" "left" "left"
+                    -annotation   "Spring stiffness for procedural animation"
+                    testSceneAnimStiffness;
+
+                floatSliderGrp
+                    -label    "Damping"
+                    -field    true
+                    -minValue  0.0 -maxValue 1.0
+                    -fieldMinValue 0.0 -fieldMaxValue 1000000.0
+                    -value     0.0
+                    -precision 4
+                    -columnWidth3  120 70 140
+                    -columnAlign3 "right" "left" "left"
+                    -annotation   "Spring damping for procedural animation"
+                    testSceneAnimDamping;
+
+                separator -height 6 -style "in";
+
+                // ── Wind (collapsed by default) ─────────────────────────────
+                frameLayout
+                    -label       "Wind"
+                    -collapsable  true
+                    -collapse     true
+                    -marginWidth  6
+                    -marginHeight 6
+                    -borderStyle  "etchedIn";
+
+                    columnLayout -adjustableColumn true -rowSpacing 6;
+
+                        text -label "Wind Velocity  (X, Y, Z)" -align "left";
+                        floatFieldGrp
+                            -numberOfFields 3
+                            -value1 0.0 -value2 0.0 -value3 0.0
+                            -columnWidth4 80 80 80 80
+                            -annotation   "Global wind vector applied to the simulation"
+                            testSceneWind;
+
+                    setParent ..;
+                setParent ..;   // Wind frameLayout
+
+                // ── Initial Conditions (collapsed by default) ───────────────
+                frameLayout
+                    -label       "Initial Conditions"
+                    -collapsable  true
+                    -collapse     true
+                    -marginWidth  6
+                    -marginHeight 6
+                    -borderStyle  "etchedIn";
+
+                    columnLayout -adjustableColumn true -rowSpacing 6;
+
+                        text -label "Linear Velocity  (X, Y, Z)" -align "left";
+                        floatFieldGrp
+                            -numberOfFields 3
+                            -precision 4
+                            -value1 0.0 -value2 0.0 -value3 0.0
+                            -columnWidth4 80 80 80 80
+                            testSceneInitLinVel;
+
+                        separator -height 4 -style "none";
+                        text -label "Angular Velocity  (X, Y, Z)" -align "left";
+                        floatFieldGrp
+                            -numberOfFields 3
+                            -precision 4
+                            -value1 0.0005 -value2 0.0 -value3 0.0
+                            -columnWidth4 80 80 80 80
+                            testSceneInitAngVel;
+
+                    setParent ..;
+                setParent ..;   // Initial Conditions frameLayout
+
+                separator -height 8 -style "none";
+
+                // ── Create button ───────────────────────────────────────────
+                button
+                    -label           "Create FlowControl Node"
+                    -height           36
+                    -backgroundColor  0.22 0.48 0.22
+                    -annotation       "Create a new testScene node with the current settings"
+                    -command          "testSceneCreate()";
+
+                // -- Update button -------------------------------------------
+                // Pushes the current UI values to the already-existing node.
+                // Use this after tweaking parameters to update the node live,
+                // the same way the Attribute Editor would.
+                button
+                    -label           "Update Parameters"
+                    -height           30
+                    -backgroundColor  0.35 0.35 0.18
+                    -annotation       "Apply the current parameter values to the existing node (does not recreate it)"
+                    -command          "testSceneUpdateParameters()";
+
+            setParent ..;   // columnLayout
+        setParent ..;       // Step 2 frameLayout
+
+        separator -height 2 -style "none";
+
+        // ===================================================================
+        // STEP 3 — Connect Attributes
+        // ===================================================================
+        frameLayout
+            -label       "Step 3:  Connect Attributes"
+            -collapsable  true
+            -collapse     false
+            -marginWidth  8
+            -marginHeight 8
+            -borderStyle  "etchedIn";
+
+            columnLayout -adjustableColumn true -rowSpacing 6;
+
+                text
+                    -label   "Select the mesh, then connect attributes."
+                    -align   "left"
+                    testSceneConnectLabel;
+
+                separator -height 4 -style "none";
+
+                button
+                    -label           "Connect Attributes"
+                    -height           32
+                    -backgroundColor  0.20 0.36 0.50
+                    -annotation       "Connect the selected mesh to the FlowControl node"
+                    -command          "connectAttributes()";
+
+            setParent ..;
+        setParent ..;   // Step 3 frameLayout
+
+        separator -height 2 -style "none";
+
+        // ===================================================================
+        // STEP 4 — Bake Animation Keyframes
+        // ===================================================================
+        frameLayout
+            -label       "Step 4:  Bake Animation Keyframes"
+            -collapsable  true
+            -collapse     false
+            -marginWidth  8
+            -marginHeight 8
+            -borderStyle  "etchedIn";
+
+            columnLayout -adjustableColumn true -rowSpacing 6;
+
+                text
+                    -label   "Duplicate selected mesh and bake simulation to keyframes."
+                    -align   "left";
+                text
+                    -label   "NOTE: Select the simulated mesh before baking."
+                    -align   "left";
+
+                separator -height 4 -style "none";
+
+                button
+                    -label           "Bake Animation Keyframes"
+                    -height           32
+                    -backgroundColor  0.28 0.28 0.45
+                    -annotation       "Duplicate selected mesh and bake simulation to keyframes"
+                    -command          "testSceneBakeSimulation()";
+
+            setParent ..;
+        setParent ..;   // Step 4 frameLayout
+
+        // ===================================================================
+        // Status line
+        // ===================================================================
+        separator -height 8 -style "in";
+        text
+            -label   "Ready to flow!"
+            -align   "left"
+            testSceneStatusLine;
+        separator -height 4 -style "none";
+
+        setParent ..;   // root columnLayout
+    setParent ..;       // scrollLayout
+}
+
+
+// ---------------------------------------------------------------------------
+// Show / create the dockable panel
+// ---------------------------------------------------------------------------
+
+global proc testSceneShowPanel()
+{
+    global string $kTestSceneWC;
+
+    // If the workspaceControl already exists, just restore and raise it.
+    if (testScenePanelExists())
+    {
+        testScenePanelRaise();
+        return;
+    }
+
+    // Create the workspaceControl.
+    // -tabToControl takes: <controlName> <tabIndex>
+    //   tabIndex -1 = append as a new tab (standard convention).
+    workspaceControl
+        -label           "FlowControl Editor"
+        -uiScript        "testSceneBuildPanelUI()"
+        -retain          true
+        -floating        true
+        -initialWidth    360
+        -initialHeight   600
+        -minimumWidth    280
+        -widthProperty   "free"
+        -heightProperty  "free"
+        -tabToControl    "AttributeEditor" -1
+        $kTestSceneWC;
+}
+
+
+// ---------------------------------------------------------------------------
+// Legacy entry point — kept so old shelf buttons / scripts still work.
+// ---------------------------------------------------------------------------
+
+global proc testSceneCreateUI()
+{
+    testSceneShowPanel();
+}
+
 
 // ---------------------------------------------------------------------------
 // Menu
@@ -378,21 +731,42 @@ global proc testSceneCreateMenu()
         deleteUI testSceneMenu;
 
     menu
-        -label "FlowControl"
-        -parent $gMainWindow
+        -label   "FlowControl"
+        -parent  $gMainWindow
         -tearOff true
         testSceneMenu;
+
     menuItem
-        -label "Create FlowControl Node..."
-        -command "testSceneCreateUI()";
+        -label   "Open FlowControl Editor"
+        -command "testSceneShowPanel()";
+
     menuItem -divider true;
+
     menuItem
-        -label "Reload UI Script"
-        -command "source \"../../UIScript.mel\"; print \"[testScene] UI reloaded.\\n\";";
-    menuItem -divider true;
+        -label   "Create FlowControl Node"
+        -command "testSceneShowPanel(); testSceneCreate();";
+
     menuItem
-        -label "Bake Animation Keyframes"
+        -label   "Bake Animation Keyframes"
         -command "testSceneBakeSimulation()";
+
+    menuItem -divider true;
+
+    menuItem
+        -label   "Freeze Transforms"
+        -command "freezeTransforms()";
+
+    menuItem -divider true;
+
+    menuItem
+        -label   "Reload UI Script"
+        -command "source \"../../UIScript.mel\"; print \"[testScene] UI reloaded.\\n\";";
+
+    menuItem -divider true;
+
+    menuItem
+        -label   "Close FlowControl Editor"
+        -command "testSceneRemoveUI()";
 }
 
 
@@ -405,7 +779,7 @@ global proc testSceneAddShelfButton()
     global string $gShelfTopLevel;
     string $activeShelf = `tabLayout -q -selectTab $gShelfTopLevel`;
 
-    // avoid duplicates
+    // Avoid duplicates
     string $children[] = `shelfLayout -q -childArray $activeShelf`;
     string $btn;
     for ($btn in $children)
@@ -421,51 +795,50 @@ global proc testSceneAddShelfButton()
     }
 
     shelfButton
-        -parent             $activeShelf
-        -label              "FlowControl"
-        -annotation         "Create a testScene simulation node"
-        -image1             "render_useBackground.png"
-        -imageOverlayLabel  "tSc"
-        -overlayLabelColor  1 1 1
+        -parent               $activeShelf
+        -label                "FlowControl"
+        -annotation           "Open FlowControl dockable editor"
+        -image1               "render_useBackground.png"
+        -imageOverlayLabel    "FC"
+        -overlayLabelColor    1 1 1
         -overlayLabelBackColor 0 0 0 0.4
-        -command            "testSceneCreateUI()"
-        -sourceType         "mel";
+        -command              "testSceneShowPanel()"
+        -sourceType           "mel";
 
     print ("[testScene] Shelf button added to shelf '" + $activeShelf + "'.\n");
 }
+
+
 // ---------------------------------------------------------------------------
 // Teardown
 // ---------------------------------------------------------------------------
 
 global proc testSceneRemoveUI()
 {
-    // 1. Close the window if it's currently open
-    if (`window -exists testSceneWin`) {
-        deleteUI testSceneWin;
-    }
+    global string $kTestSceneWC;
+
+    // 1. Delete the workspaceControl (closes and destroys the panel)
+    if (testScenePanelExists())
+        deleteUI $kTestSceneWC;
 
     // 2. Delete the main menu
-    if (`menu -exists testSceneMenu`) {
+    if (`menu -exists testSceneMenu`)
         deleteUI testSceneMenu;
-    }
 
     // 3. Find and delete the shelf button across all shelves
     global string $gShelfTopLevel;
-    
-    // Ensure the main shelf UI exists
-    if (`tabLayout -exists $gShelfTopLevel`) {
-        // Get all individual shelf tabs
+    if (`tabLayout -exists $gShelfTopLevel`)
+    {
         string $shelves[] = `tabLayout -q -childArray $gShelfTopLevel`;
-        
-        for ($shelf in $shelves) {
-            // Get all items on this specific shelf
+        for ($shelf in $shelves)
+        {
             string $buttons[] = `shelfLayout -q -childArray $shelf`;
-            
-            for ($btn in $buttons) {
-                // Ensure the UI element is actually a shelf button
-                if (`objectTypeUI $btn` == "shelfButton") {
-                    // Check if the label matches the one we created
-                    if (`shelfButton -q -label $btn` == "FlowControl") {
+            for ($btn in $buttons)
+            {
+                if (`objectTypeUI $btn` == "shelfButton")
+                {
+                    if (`shelfButton -q -label $btn` == "FlowControl")
+                    {
                         deleteUI $btn;
                         print ("[testScene] Removed FlowControl shelf button from '" + $shelf + "'.\n");
                     }
@@ -473,6 +846,6 @@ global proc testSceneRemoveUI()
             }
         }
     }
-    
-    print ("[testScene] UI successfully removed.\n");
+
+    print ("[testScene] FlowControl UI removed.\n");
 }

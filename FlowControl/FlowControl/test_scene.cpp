@@ -275,7 +275,9 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
             Vector3d wind_body = R.transpose() * wind_world;
 
 
-            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, K_t, mu0, F_external, dt, meshData, rho_fluid, k_ang, wind_body);
+            NewtonResult result = integrator.integrate_step_newton(m_currentG, m_currentMu, K_t, mu0, F_external, dt, meshData,
+                m_cachedVertices, vertices_k1,
+                rho_fluid, k_ang, wind_body);
 
 
             /*

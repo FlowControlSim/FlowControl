@@ -20,6 +20,7 @@
 
 global string $kTestSceneWC = "testSceneWorkspaceControl";
 global string $kTestSceneUI = "testSceneMainLayout";
+global string $kTestSceneScroll = "testSceneScrollLayout"; 
 
 
 // ---------------------------------------------------------------------------
@@ -312,6 +313,58 @@ global proc connectAttributes()
         text -e -label ("  Connected: " + $meshTransform + " -> " + $nodeName) testSceneStatusLine;
 }
 
+// ---------------------------------------------------------------------------
+// Action: Connect Shape-Changing Attributes
+// ---------------------------------------------------------------------------
+
+global proc testSceneConnectShapeChanging()
+{
+    string $nodeName = `textFieldGrp -q -text testSceneNodeName`;
+    if ($nodeName == "") $nodeName = "testScene1";
+
+    if (!`objExists $nodeName`) {
+        error ("[testScene] Node '" + $nodeName + "' does not exist. Create it first.\n");
+        return;
+    }
+
+    // Read the drag-and-dropped mesh names
+    string $driver = `textFieldGrp -q -text testSceneDriverMesh`;
+    string $driven = `textFieldGrp -q -text testSceneDrivenMesh`;
+
+    if (!`objExists $driver` || !`objExists $driven`) {
+        error ("[testScene] Driver or Driven mesh does not exist. Middle-mouse drag them from the Outliner.\n");
+        return;
+    }
+
+    // Get the shapes
+    string $driverShapes[] = `listRelatives -shapes -type mesh -noIntermediate $driver`;
+    string $drivenShapes[] = `listRelatives -shapes -type mesh -noIntermediate $driven`;
+
+    if (size($driverShapes) == 0 || size($drivenShapes) == 0) {
+        error ("[testScene] Both Driver and Driven must have valid polygon mesh shapes.\n");
+        return;
+    }
+
+    string $driverShape = $driverShapes[0];
+    string $drivenShape = $drivenShapes[0];
+
+    // 1. time1.outTime -> node.inTime
+    connectAttr -force "time1.outTime" ($nodeName + ".inTime");
+
+    // 2. driverShape.outMesh -> node.inMesh
+    connectAttr -force ($driverShape + ".outMesh") ($nodeName + ".inMesh");
+
+    // 3. driverShape.outMesh -> drivenShape.inMesh (Forces Maya to drop driven's Alembic)
+    connectAttr -force ($driverShape + ".outMesh") ($drivenShape + ".inMesh");
+
+    // 4. node.outTransform -> driven.offsetParentMatrix
+    connectAttr -force ($nodeName + ".outTransform") ($driven + ".offsetParentMatrix");
+
+    print ("[testScene] Shape-Changing connections complete.\n");
+    if (`text -exists testSceneStatusLine`)
+        text -e -label ("  Connected Shape-Changer: " + $driven) testSceneStatusLine;
+}
+
 
 // ---------------------------------------------------------------------------
 // Action: Bake Simulation
@@ -342,8 +395,15 @@ if not original:\n\
 else:\n\
     target = original[0]\n\
 \n\
-    bake_copy = cmds.duplicate(target, name=f'{target}_BAKED')\n\
-    copy_node = bake_copy[0]\n\
+    bake_copy = cmds.duplicate(target, name=f'{target}_BAKED')[0]\n\
+\n\
+    # Reconnect the Alembic (or any upstream deformer) to the duplicate\n\
+    shapes = cmds.listRelatives(target, shapes=True)\n\
+    if shapes:\n\
+        in_conn = cmds.listConnections(shapes[0] + '.inMesh', source=True, plugs=True)\n\
+        bake_shapes = cmds.listRelatives(bake_copy, shapes=True)\n\
+        if in_conn and bake_shapes:\n\
+            cmds.connectAttr(in_conn[0], bake_shapes[0] + '.inMesh', force=True)\n\
 \n\
     for i in range(" + $startFrame + ", " + ($endFrame + 1) + "):\n\
         cmds.dgdirty(allPlugs=True)\n\
@@ -351,15 +411,16 @@ else:\n\
 \n\
         pos = cmds.xform(target, query=True, worldSpace=True, translation=True)\n\
         rot = cmds.xform(target, query=True, worldSpace=True, rotation=True)\n\
-\n\
-        cmds.xform(copy_node, worldSpace=True, translation=pos)\n\
-        cmds.xform(copy_node, worldSpace=True, rotation=rot)\n\
-\n\
-        cmds.setKeyframe(copy_node)\n\
+        \n\
+        cmds.xform(bake_copy, worldSpace=True, translation=pos)\n\
+        cmds.xform(bake_copy, worldSpace=True, rotation=rot)\n\
+        \n\
+        cmds.setKeyframe(bake_copy, attribute='translate')\n\
+        cmds.setKeyframe(bake_copy, attribute='rotate')\n\
         print(f'Recorded frame {i}')\n\
 \n\
     cmds.setAttr(f'{target}.visibility', 0)\n\
-    cmds.select(copy_node, replace=True)\n\
+    cmds.select(bake_copy, replace=True)\n\
     print('[testScene] Bake complete.')\n\
 "
     );
@@ -367,7 +428,6 @@ else:\n\
     if (`text -exists testSceneStatusLine`)
         text -e -label "  Bake complete." testSceneStatusLine;
 }
-
 
 // ---------------------------------------------------------------------------
 // Panel UI content builder
@@ -380,11 +440,14 @@ else:\n\
 global proc testSceneBuildPanelUI()
 {
     global string $kTestSceneUI;
+    global string $kTestSceneScroll;
 
-    // Guard: bail out if the layout was already built.
-    if (`columnLayout -exists $kTestSceneUI`)
-        return;
-
+    if (`scrollLayout -exists $kTestSceneScroll`) {
+        deleteUI $kTestSceneScroll;
+    } else if (`columnLayout -exists $kTestSceneUI`) {
+        deleteUI $kTestSceneUI;
+    }
+    
     // -----------------------------------------------------------------------
     // Root: scrollable so the panel works at any height
     // -----------------------------------------------------------------------
@@ -642,6 +705,53 @@ global proc testSceneBuildPanelUI()
         separator -height 2 -style "none";
 
         // ===================================================================
+        // STEP 3B - Connect Shape-Changing Mesh
+        // ===================================================================
+        frameLayout
+            -label       "Step 3B: Connect Shape-Changing Mesh"
+            -collapsable  true
+            -collapse     false
+            -marginWidth  8
+            -marginHeight 8;
+
+            columnLayout -adjustableColumn true -rowSpacing 6;
+                
+                text -label "Middle-mouse drag meshes from the Outliner into the fields below:" 
+                     -align "left";
+                
+                separator -height 4 -style "none";
+
+                textFieldGrp
+                    -label "Driver Mesh (Hidden)"
+                    -text ""
+                    -columnWidth2 120 180
+                    -columnAlign2 "right" "left"
+                    -annotation "The mesh with the Alembic animation"
+                    testSceneDriverMesh;
+
+                textFieldGrp
+                    -label "Driven Mesh (Visible)"
+                    -text ""
+                    -columnWidth2 120 180
+                    -columnAlign2 "right" "left"
+                    -annotation "The duplicated mesh that will swim"
+                    testSceneDrivenMesh;
+
+                separator -height 4 -style "none";
+
+                button
+                    -label           "Connect Shape-Changing Mesh"
+                    -height           32
+                    -backgroundColor  0.20 0.50 0.36
+                    -annotation       "Automatically routes driver, driven, and FlowControl node connections"
+                    -command          "testSceneConnectShapeChanging()";
+
+            setParent ..;
+        setParent ..;   // Step 3B frameLayout
+
+        separator -height 2 -style "none";
+
+        // ===================================================================
         // STEP 4 - Bake Animation Keyframes
         // ===================================================================
         frameLayout
@@ -721,7 +831,7 @@ global proc testSceneShowPanel()
     //   tabIndex -1 = append as a new tab.
     workspaceControl
         -label           "FlowControl Editor"
-        -uiScript        "testSceneBuildPanelUI()"
+        -uiScript        "testSceneBuildPanelUI"
         -retain          true
         -floating        true
         -initialWidth    360

@@ -180,6 +180,8 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
 
             m_cachedVertices.clear();
             m_cachedVertices.reserve(meshData.m_vertices.length());
+
+            #pragma omp parallel for schedule(static)
             for (unsigned int i = 0; i < meshData.m_vertices.length(); ++i) {
                 m_cachedVertices.push_back(Vector3d(meshData.m_vertices[i].x * MAYA_TO_METERS, 
                     meshData.m_vertices[i].y * MAYA_TO_METERS,
@@ -217,7 +219,7 @@ MStatus testScene::compute(const MPlug& plug, MDataBlock& data)
 
             // get vertices at current frame
             MeshData meshData(meshObj);
-            meshData.setMassDensity(mass_body, MassDensityType::UNIFORM, nullptr);
+            meshData.setMassDensity(mass_body, MassDensityType::VOLUME_WEIGHTED, nullptr);
             meshData.computeProperties();
 
             std::vector<Vector3d> vertices_k1;

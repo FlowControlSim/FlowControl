@@ -1,4 +1,6 @@
 ﻿#include "FlowIntegrator.h"
+#include <omp.h>
+#include <vector>
 
 // external force class
 
@@ -18,45 +20,61 @@ Vector6D FlowIntegrator::compute_lift_drag_force(
     Vector3d omega = Y.omega();  // angular velocity (body frame)
     Vector3d v = Y.vel();    // linear velocity  (body frame)
 
+    int max_threads = omp_get_max_threads();
+
+    std::vector<Vector3d> thread_forces(max_threads, Vector3d::Zero());
+    std::vector<Vector3d> thread_torques(max_threads, Vector3d::Zero());
+
     const double M = 1.0; // 0.01
 
-    Vector3d torque = Vector3d::Zero();
-    Vector3d force = Vector3d::Zero();
+    
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
 
-    for (int i = 0; i < mesh.numTriangles(); ++i) {
-        const MPoint& c = mesh.m_faceCenters[i];
-        Vector3d gamma_face(c.x * M, c.y * M, c.z * M);
+        #pragma omp for
+        for (int i = 0; i < mesh.numTriangles(); ++i) {
+        
+            const MPoint& c = mesh.m_faceCenters[i];
+            Vector3d gamma_face(c.x * M, c.y * M, c.z * M);
 
-        // Get the triangle indices
-        int i0 = mesh.m_triangleFaces[3 * i];
-        int i1 = mesh.m_triangleFaces[3 * i + 1];
-        int i2 = mesh.m_triangleFaces[3 * i + 2];
+            // Get the triangle indices
+            int i0 = mesh.m_triangleFaces[3 * i];
+            int i1 = mesh.m_triangleFaces[3 * i + 1];
+            int i2 = mesh.m_triangleFaces[3 * i + 2];
 
-        // Calculate the local shape-change velocity for this face
-        Vector3d gamma_dot_face = ((v_k1[i0] - v_k[i0]) +
-            (v_k1[i1] - v_k[i1]) +
-            (v_k1[i2] - v_k[i2])) / (3.0 * dt);
+            // Calculate the local shape-change velocity for this face
+            Vector3d gamma_dot_face = ((v_k1[i0] - v_k[i0]) +
+                (v_k1[i1] - v_k[i1]) +
+                (v_k1[i2] - v_k[i2])) / (3.0 * dt);
 
-        // Add the shape-change velocity to the face velocity
-        Vector3d u_face = omega.cross(gamma_face) + v + gamma_dot_face - wind_body;
+            // Add the shape-change velocity to the face velocity
+            Vector3d u_face = omega.cross(gamma_face) + v + gamma_dot_face - wind_body;
 
-        double u_norm = u_face.norm();
-        if (u_norm < 1e-10) continue;
+            double u_norm = u_face.norm();
+            if (u_norm < 1e-10) continue;
 
-        const MVector& nM = mesh.m_faceNormals[i];
-        Vector3d n(nM.x, nM.y, nM.z);
-        double A = mesh.m_faceAreas[i] * M * M;
+            const MVector& nM = mesh.m_faceNormals[i];
+            Vector3d n(nM.x, nM.y, nM.z);
+            double A = mesh.m_faceAreas[i] * M * M;
 
-        double u_dot_n = u_face.dot(n);
+            double u_dot_n = u_face.dot(n);
 
-        // combined lift+drag
-        force += -rho_fluid * u_norm * u_dot_n * n * A;
-        torque += -rho_fluid * u_norm * u_dot_n * gamma_face.cross(n) * A;
+            thread_forces[tid] += -rho_fluid * u_norm * u_dot_n * n * A;
+            thread_torques[tid] += -rho_fluid * u_norm * u_dot_n * gamma_face.cross(n) * A;
+        }
+    }
+
+    Vector3d total_torque = Vector3d::Zero();
+    Vector3d total_force = Vector3d::Zero();
+    for (int i = 0; i < max_threads; ++i) {
+        total_force += thread_forces[i];
+        total_torque += thread_torques[i];
     }
 
     // Factor of 1/2 for closed surfaces (each face appears from both sides)
     Vector6d data;
-    data << 0.5 * torque, 0.5 * force;
+    data << 0.5 * total_torque, 0.5 * total_force;
     return Vector6D(data);
 
 }
@@ -156,37 +174,50 @@ Matrix6d FlowIntegrator::compute_added_mass_tensor(const MeshData& mesh, double 
     }
 
     // compute delta
-	double delta = compute_delta(face_areas, face_normals, mesh);
+    double delta = compute_delta(face_areas, face_normals, mesh);
 
-    // compute added mass tensor
-    Matrix6d I = Matrix6d::Zero();
+    // Master matrix
+    Matrix6d I_total = Matrix6d::Zero();
 
-    for (int i = 0; i < mesh.numTriangles(); ++i) {
-        MPoint x_maya = mesh.m_faceCenters[i];
-        Vector3d x(x_maya.x * M, x_maya.y * M, x_maya.z * M); // face center
-        MVector n_maya = mesh.m_faceNormals[i];
-        Vector3d n(n_maya.x, n_maya.y, n_maya.z); // face normal
-        double A = face_areas[i] * M * M; // face area
+    #pragma omp parallel
+    {
 
-        Vector3d xn = x.cross(n);
+        Matrix6d I_local = Matrix6d::Zero();
 
-        Matrix3d A11 = xn * xn.transpose();
-        Matrix3d A12 = xn * n.transpose();
-        Matrix3d A21 = A12.transpose();
-        Matrix3d A22 = n * n.transpose();
+        #pragma omp for
+        for (int i = 0; i < mesh.numTriangles(); ++i) {
+            MPoint x_maya = mesh.m_faceCenters[i];
+            Vector3d x(x_maya.x * M, x_maya.y * M, x_maya.z * M); // face center
+            MVector n_maya = mesh.m_faceNormals[i];
+            Vector3d n(n_maya.x, n_maya.y, n_maya.z); // face normal
+            double A = face_areas[i] * M * M; // face area
 
-        Matrix6d J = Matrix6d::Zero();
-        J << A11, A12,
-             A21, A22;
-        I += rho_fluid * delta * A * J;
+            Vector3d xn = x.cross(n);
+
+            Matrix3d A11 = xn * xn.transpose();
+            Matrix3d A12 = xn * n.transpose();
+            Matrix3d A21 = A12.transpose();
+            Matrix3d A22 = n * n.transpose();
+
+            Matrix6d J;
+            J << A11, A12,
+                A21, A22;
+
+            I_local += rho_fluid * delta * A * J;
+        }
+
+        #pragma omp critical
+        {
+            I_total += I_local;
+        }
     }
 
-    return I;
+    return I_total;
 }
 
 Vector6D FlowIntegrator::compute_fluid_momentum(const std::vector<Vector3d>& vertices_k,
-                                                const std::vector<Vector3d>& vertices_k1,
-                                                const MeshData& mesh, double rho_fluid, double dt) {
+    const std::vector<Vector3d>& vertices_k1,
+    const MeshData& mesh, double rho_fluid, double dt) {
     // compute face areas
     std::vector<double> face_areas = mesh.m_faceAreas;
 
@@ -203,35 +234,50 @@ Vector6D FlowIntegrator::compute_fluid_momentum(const std::vector<Vector3d>& ver
     // compute delta
     const double delta = compute_delta(face_areas, face_normals, mesh);
 
-	// compute fluid momentum
+    // compute fluid momentum
     const double prefactor = rho_fluid * delta;
 
-    Vector3d l_f = Vector3d::Zero();
-    Vector3d p_f = Vector3d::Zero();
+    int max_threads = omp_get_max_threads();
+    std::vector<Vector3d> thread_lf(max_threads, Vector3d::Zero());
+    std::vector<Vector3d> thread_pf(max_threads, Vector3d::Zero());
 
-    for (int i = 0; i < mesh.numTriangles(); ++i) {
-        // triangle vertices
-        const int i0 = mesh.m_triangleFaces[3 * i];
-        const int i1 = mesh.m_triangleFaces[3 * i + 1];
-        const int i2 = mesh.m_triangleFaces[3 * i + 2];
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
 
-        const Vector3d gamma_dot_face = ((vertices_k1[i0] - vertices_k[i0]) +
-                                         (vertices_k1[i1] - vertices_k[i1]) +
-                                         (vertices_k1[i2] - vertices_k[i2])) / (3.0 * dt) * M * M;
-        const Vector3d gamma_face = (vertices_k[i0] + vertices_k[i1] + vertices_k[i2]) / 3.0 * M * M;
+        #pragma omp for
+        for (int i = 0; i < mesh.numTriangles(); ++i) {
+            // triangle vertices
+            const int i0 = mesh.m_triangleFaces[3 * i];
+            const int i1 = mesh.m_triangleFaces[3 * i + 1];
+            const int i2 = mesh.m_triangleFaces[3 * i + 2];
 
-        const double A = face_areas[i] * M * M;
-        const MVector& n_maya = mesh.m_faceNormals[i];
-        const Vector3d n(n_maya.x, n_maya.y, n_maya.z);
+            const Vector3d gamma_dot_face = ((vertices_k1[i0] - vertices_k[i0]) +
+                (vertices_k1[i1] - vertices_k[i1]) +
+                (vertices_k1[i2] - vertices_k[i2])) / (3.0 * dt) * M * M;
+            const Vector3d gamma_face = (vertices_k[i0] + vertices_k[i1] + vertices_k[i2]) / 3.0 * M * M;
 
-		// update fluid momentum
-        const double gdot_n = gamma_dot_face.dot(n);
-        l_f += prefactor * gdot_n * gamma_face.cross(n) * A;
-        p_f += prefactor * gdot_n * n * A;
+            const double A = face_areas[i] * M * M;
+            const MVector& n_maya = mesh.m_faceNormals[i];
+            const Vector3d n(n_maya.x, n_maya.y, n_maya.z);
+
+            // update fluid momentum
+            const double gdot_n = gamma_dot_face.dot(n);
+            thread_lf[tid] += prefactor * gdot_n * gamma_face.cross(n) * A;
+            thread_pf[tid] += prefactor * gdot_n * n * A;
+        }
+    }
+
+
+    Vector3d l_f_total = Vector3d::Zero();
+    Vector3d p_f_total = Vector3d::Zero();
+    for (int i = 0; i < max_threads; ++i) {
+        l_f_total += thread_lf[i];
+        p_f_total += thread_pf[i];
     }
 
     Vector6d data;
-    data << l_f, p_f;
+    data << l_f_total, p_f_total;
 
     return Vector6D(data);
 }
@@ -330,38 +376,4 @@ NewtonResult FlowIntegrator::integrate_step_newton(const SE3Transform& g_k, cons
     return NewtonResult{ g_next, mu_next, Y, false, max_newton_iters, r_norm };
 }
 
-/*
-SimulationResult FlowIntegrator::simulate(const SE3Transform& g0, const Vector6D& mu0, const Matrix6d& K, const Vector6D& mu_offset, 
-                                          double dt, int num_steps, double mass_body, double volume, double rho_fluid, 
-                                          double ref_area, double C_d, bool include_drag, bool verbose) {
-	SimulationResult result;
-    
-    SE3Transform g = g0;
-    Vector6D mu = mu0;
 
-    result.trajectory.reserve(num_steps + 1);
-    result.velocities.reserve(num_steps);
-    result.forces.reserve(num_steps);
-    result.convergence.reserve(num_steps);
-
-    result.trajectory.push_back(g.t());
-
-    for (int i = 0; i < num_steps; ++i) {
-
-        Vector6D Y = Vector6D(K.inverse() * (mu.data - mu_offset.data));
-        Vector6D F = compute_total_force(Y, mass_body, volume, rho_fluid, ref_area, C_d, include_drag);
-		NewtonResult nR = integrate_step_newton(g, mu, K, mu_offset, F, dt);
-
-        result.trajectory.push_back(nR.g_next.t());
-        result.velocities.push_back(nR.mu_next.vel());
-        result.forces.push_back(nR.Y.vel());
-        result.convergence.push_back(nR);
-
-    }
-    double avg_iters = stats.first / stats.second;
-
-    result.avg_newton_iters = avg_iters;
-
-    return result;
-
-} */

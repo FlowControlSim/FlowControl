@@ -160,6 +160,14 @@ global proc testSceneCreate()
     setAttr ($node + ".initialLinearVel")  -type double3 $linVelX $linVelY $linVelZ;
     setAttr ($node + ".initialAngularVel") -type double3 $angVelX $angVelY $angVelZ;
 
+    // create the locator node
+    // Create the locator
+    string $loc[] = `spaceLocator -name "animTarget"`;
+
+    // Key the target: start at origin, end 10 units below at frame 120
+    setKeyframe -time 1 -value 0 -attribute "translateY" $loc[0];
+    setKeyframe -time 120 -value -10 -attribute "translateY" $loc[0];
+
     // --- visual feedback in panel ------------------------------------------
     if (`text -exists testSceneStatusLine`)
         text -e -label ("  Node created: " + $node) testSceneStatusLine;
